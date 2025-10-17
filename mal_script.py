@@ -36,35 +36,26 @@ class AsyncAPIClient:
             print(f"request failed : {e}")
             raise e
     
-    async def getv2(self, path:str, params : dict = {}):
-        async with self.session as session:
-            api_url = self.generate_url(path,params)
-            async with session.get(api_url) as res:
-                return await res.json()
-        
-    # async def get(self, endpoint:str, params={}):
-    #     async with self._make_request('GET',endpoint,parasm):
-    #     response = await self._make_request('GET', endpoint, params)
-        
-        # content_type = response.headers.get('content-type', '').split(';')[0].strip()
-        # if content_type == 'application/json':
-        #     print("masuk sini")
-        #     data =  await response.json()
-        #     # print(data)
-        #     return data
-        # else:
-        #     return await response.text()
+    async def getv2(self, path: str, params: dict = {}):
+        api_url = self.generate_url(path, params)
+        async with self.session.get(api_url) as res:
+            return await res.json()
 
 async def main():
     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
+        semaphore = asyncio.Semaphore(1)
+
+        async def get_with_semaphore(endpoint, params):
+            async with semaphore:
+                return await client.getv2(endpoint,params)
+        task1 = get_with_semaphore('seasons/now', params={'page':1})
+        task2 = get_with_semaphore('seasons/now', params={'page':2})
         tasks = []
-        task1 = client.getv2('seasons/now', params={'page':1})
-        task2 = client.getv2('seasons/now', params={'page':2})
-        task3 = client.getv2('seasons/now', params={'page':3})
-        
+
         tasks.append(task1)
         tasks.append(task2)
-        tasks.append(task3)
+        # results = asyncio.gather(*tasks, return_exceptions=True)
+
         results = await asyncio.gather(*tasks,return_exceptions=True)
         for i, result in enumerate(results):    
             if isinstance(result, Exception):
@@ -78,24 +69,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-    # async def main():
-#     async with AsyncAPIClient("api.jikan.moe/v4", headers={}) as client:
-#         semaphore = asyncio.Semaphore(1)  # Or 2 for slight parallelism
-
-#         async def get_with_semaphore(endpoint, params):
-#             async with semaphore:
-#                 return await client.get(endpoint, params)
-
-#         task1 = get_with_semaphore('seasons/now', params={'page': 1})
-#         task2 = get_with_semaphore('seasons/now', params={'page': 2})
-#         tasks = [task1, task2]
-
-#         results = await asyncio.gather(*tasks, return_exceptions=True)
-
-#         for i, result in enumerate(results):
-#             if isinstance(result, Exception):
-#                 print(f"Task {i+1} failed: {result}")
-#             else:
-#                 print(f"Task {i+1} result: {result}")
