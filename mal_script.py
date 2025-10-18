@@ -44,20 +44,35 @@ class AsyncAPIClient:
             print(f"request failed : {e}")
             raise e
     
-    async def get(self, path: str, params: dict = {}):
+    async def get(self, path: str, params: dict = {}, max_attemps = 3):
         api_url = self.generate_url(path, params)
-        try:
-            async with self.semaphore:
-                async with self.session.get(api_url) as res:
-                    data =  await res.json()
-                    line_print(Back.GREEN,f"Success fetch data from {api_url}")
-                    return data
-        except aiohttp.ClientError as e:
-            line_print(Back.RED , f"aiohttp client error GET {api_url}")
-            self.errors.append(e)
-        except Exception as e:
-            line_print(Back.RED , f"Error Occured Request GET {api_url}")
-            self.errors.append(e)
+        async with self.semaphore:
+            for attempt in range(max_attemps+1):
+                try:
+                    async with self.session.get(api_url) as res:
+                        if res.status == 200:
+                            data = await res.json()
+                            line_print(Back.GREEN,f"Success fetch data from {api_url}")
+                            return data
+                        else:
+                            line_print(Back.YELLOW, f"Bad status {res.status} for {api_url}, attempt {attempt + 1}/{max_attemps + 1}")
+                            if attempt == max_attemps:
+                                raise aiohttp.ClientResponseError(
+                                    res.request_info, res.history, status=res.status,
+                                    message=f"Failed after {max_attemps + 1} attempts"
+                                )
+                            
+                except aiohttp.ClientResponseError as e:
+                    line_print(Back.RED , f"aiohttp client error GET {api_url}")
+                    self.errors.append(e)
+                    raise e
+                except Exception as e:
+                    line_print(Back.RED , f"Error Occured Request GET {api_url}")
+                    self.errors.append(e)
+                    raise e
+                
+                await asyncio.sleep(1.5)
+        raise RuntimeError(f"Exhausted {max_attemps + 1} attempts for {api_url} without success")
 
     def _gather_data(self,datas:list):
         self.results.extend(datas)
@@ -85,6 +100,9 @@ class AsyncAPIClient:
                         
                         self._gather_data(anime_data)
             return self.results
+        except RuntimeError as e:
+            self.errors.append(e)
+            raise e
         except Exception as e:
             raise e
 
