@@ -13,7 +13,7 @@ class AsyncAPIClient:
         self.errors = []
         self.max_concurrency = max_concurrency
         self.semaphore = asyncio.Semaphore(max_concurrency)
-        self.results = []
+        self.results = {}
     
     async def __aenter__(self):
         # connector = aiohttp.TCPConnector(limit=1)  # 1 concurrent connection
@@ -32,17 +32,6 @@ class AsyncAPIClient:
 
         new_url = urlunparse((scheme, netloc, path, '', new_query, ''))
         return new_url
-    
-    async def _make_request(self,method, endpoint:str, params : dict):
-        url = self.generate_url(path=endpoint, query_dict=params)
-        print(url)
-        try:
-            async with self.session.request(method,url) as response:
-                response.raise_for_status()
-                return response
-        except aiohttp.ClientError as e:
-            print(f"request failed : {e}")
-            raise e
     
     async def get(self, path: str, params: dict = {}, max_attemps = 3):
         api_url = self.generate_url(path, params)
@@ -64,22 +53,19 @@ class AsyncAPIClient:
                             
                 except aiohttp.ClientResponseError as e:
                     line_print(Back.RED , f"aiohttp client error GET {api_url}")
-                    self.errors.append(e)
+                    # self.errors.append(e)
                     raise e
                 except Exception as e:
                     line_print(Back.RED , f"Error Occured Request GET {api_url}")
-                    self.errors.append(e)
+                    # self.errors.append(e)
                     raise e
                 
                 await asyncio.sleep(3)
         raise RuntimeError(f"Exhausted {max_attemps + 1} attempts for {api_url} without success")
 
-    def _gather_data(self,datas:list):
-        self.results.extend(datas)
-
     # this is for get all the data from a path
     # this is used to get all the paginated data
-    async def get_path_entire_data(self, path : str, params : dict = {}):
+    async def get_path_entire_data(self, path : str):
         try:
             first_data = await self.get(path)
             pagination = first_data.get('pagination') # type: ignore
@@ -105,30 +91,51 @@ class AsyncAPIClient:
             print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
             return final_result
         except RuntimeError as e:
-            self.errors.append(e)
             raise e
         except Exception as e:
             raise e
-        
-    def generate_years_of_seasonal_path(self, year_start = 2000, year_end = 2025):
-        seasons = ['winter','fall','summer','spring']
-        results = []
+    
+    async def add_data_to_final_result(self, year:int, season:str):
+        api_path = f"/seasons/{year}/{season}"
+        try:
+            if year not in self.results:
+                self.results[year] = {}
+            self.results[year][season] = await self.get_path_entire_data(api_path)
+        except Exception as e:
+            self.errors.append({"error" : e, "path" : api_path})
+            raise e
+
+    # {
+    #   2025 : {
+    #   'winter' : 
+    #   },
+    #  'summer': {}
+    # }
+    async def get_years_of_seasonal_data_v2(self, year_start = 2000, year_end = 2025):
+        tasks = []
+        seasons = ['winter', 'spring', 'summer', 'fall']
         for year in range(year_start,year_end+1):
             for season in seasons:
-                results.append(f"/seasons/{year}/{season}")
-        return results
+                new_task = self.add_data_to_final_result(year,season)
+                tasks.append(new_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return self.results
 
-    async def get_years_of_seasonal_data(self, year_start = 2000, year_end = 2025):
-        seasonal_paths = self.generate_years_of_seasonal_path(year_start, year_end)
-        tasks = []
-        for path in seasonal_paths:
-            tasks.append(self.get_path_entire_data(path))
-        final_result = await asyncio.gather(*tasks, return_exceptions=True)
-        return final_result
+class JikanDataProcessor:
+    def __init__(self, base_data : list):
+        self.base_data = base_data
+    
+    def get_yearly_isekais(self):
+        print("pusing")
 
 async def main():
     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
-        await client.get_years_of_seasonal_data(2020,2025)
+        final_result = await client.get_years_of_seasonal_data_v2(2025,2025)
+        print(final_result[2025]['fall'])
+        print(client.errors)
+        # coba bikin list baru yang isinya hanya theme -> isekai
+        # tampilkan jumlah isekai di sebuah season / tampilkan total isekai di itu season
+        # tampilkan jumlah isekai yearly / yg normal 
 
 if __name__ == "__main__":
     asyncio.run(main())
