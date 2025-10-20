@@ -2,12 +2,12 @@ import aiohttp
 from urllib.parse import urlunparse, urlencode
 import asyncio
 from colorama import init, Fore, Back, Style
-import itertools
+
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
 class AsyncAPIClient:
-    def __init__(self, base_url:str, headers : dict = {}, max_concurrency = 3):
+    def __init__(self, base_url:str, headers : dict = {}, max_concurrency = 4):
         self.base_url = base_url.rstrip('/')
         self.headers = headers
         self.errors = []
@@ -71,7 +71,7 @@ class AsyncAPIClient:
                     self.errors.append(e)
                     raise e
                 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(3)
         raise RuntimeError(f"Exhausted {max_attemps + 1} attempts for {api_url} without success")
 
     def _gather_data(self,datas:list):
@@ -83,35 +83,52 @@ class AsyncAPIClient:
         try:
             first_data = await self.get(path)
             pagination = first_data.get('pagination') # type: ignore
-            page_count = pagination['last_visible_page']
+            if pagination is None:
+                return first_data.get('data', [])
+            page_count = pagination.get('last_visible_page', 1)
+            # 
+            final_result = []
+            anime_data :list= first_data.get('data') # type: ignore
+            final_result.extend(anime_data)
+            # 
             if(page_count > 1):
                 tasks = []
                 for i in range(1,page_count):
                     current_index = i + 1
                     tasks.append(self.get(path,params={'page':current_index}))
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks)
                 # 
-                anime_data :list= first_data.get('data') # type: ignore
-                
-                self._gather_data(anime_data)
                 for result in results:
                     anime_data :list= result.get('data') # type: ignore
                     if anime_data is not None:
-                        
-                        self._gather_data(anime_data)
-            return self.results
+                        final_result.extend(anime_data)
+            print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
+            return final_result
         except RuntimeError as e:
             self.errors.append(e)
             raise e
         except Exception as e:
             raise e
+        
+    def generate_years_of_seasonal_path(self, year_start = 2000, year_end = 2025):
+        seasons = ['winter','fall','summer','spring']
+        results = []
+        for year in range(year_start,year_end+1):
+            for season in seasons:
+                results.append(f"/seasons/{year}/{season}")
+        return results
 
+    async def get_years_of_seasonal_data(self, year_start = 2000, year_end = 2025):
+        seasonal_paths = self.generate_years_of_seasonal_path(year_start, year_end)
+        tasks = []
+        for path in seasonal_paths:
+            tasks.append(self.get_path_entire_data(path))
+        final_result = await asyncio.gather(*tasks, return_exceptions=True)
+        return final_result
 
 async def main():
     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
-        results = await client.get_path_entire_data('seasons/now')
-        print(len(results))
+        await client.get_years_of_seasonal_data(2020,2025)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
