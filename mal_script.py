@@ -2,6 +2,8 @@ import aiohttp
 from urllib.parse import urlunparse, urlencode
 import asyncio
 from colorama import init, Fore, Back, Style
+import os
+import json
 
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
@@ -70,7 +72,7 @@ class AsyncAPIClient:
             first_data = await self.get(path)
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
-                return first_data.get('data', [])
+                raise Exception({"error" : f"{path} data is corrupt, no pagination data", "path": path})
             page_count = pagination.get('last_visible_page', 1)
             # 
             final_result = []
@@ -89,18 +91,20 @@ class AsyncAPIClient:
                     if anime_data is not None:
                         final_result.extend(anime_data)
             print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
-            return final_result
+            return pagination,final_result
         except RuntimeError as e:
             raise e
         except Exception as e:
             raise e
+
     
     async def add_data_to_final_result(self, year:int, season:str):
         api_path = f"/seasons/{year}/{season}"
         try:
             if year not in self.results:
                 self.results[year] = {}
-            self.results[year][season] = await self.get_path_entire_data(api_path)
+            pagination_info,path_data = await self.get_path_entire_data(api_path)
+            self.results[year][season] = {"data" : path_data, "pagination_info" : pagination_info}
         except Exception as e:
             self.errors.append({"error" : e, "path" : api_path})
             raise e
@@ -121,21 +125,53 @@ class AsyncAPIClient:
         await asyncio.gather(*tasks, return_exceptions=True)
         return self.results
 
+    def print_error(self):
+        line_print(Back.RED, "Here are the errors during data gathering")
+        if self.errors.count == 0:
+            print(Fore.RED + "No Error Occured")
+        else:
+            for error in self.errors:
+                print(Fore.RED + error)
+
 class JikanDataProcessor:
-    def __init__(self, base_data : list):
+    def __init__(self, base_data : dict[int,dict[str,dict]]):
         self.base_data = base_data
-    
-    def get_yearly_isekais(self):
-        print("pusing")
+        self.isekai_data = {}
+
+    def gather_isekai_data(self):
+        for year in self.base_data:
+            for season in self.base_data[year]:
+                anime_list : list = self.base_data[year][season].get("data",[])
+                for anime in anime_list:
+                    if anime.get('themes','x').get('name','x') == "Isekai":
+                        print(anime.get("mal_id","pusing"))
+
+def save_data_to_file(data:dict, file_path:str = "data.txt"):
+    with open(file_path,'w', encoding='utf-8') as file:
+        json.dump(data,file,ensure_ascii=False, indent=4)
+
+def load_data_from_file(file_path:str = "jikan.txt"):
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        raise FileNotFoundError(f"Data file '{file_path}' not found.")
 
 async def main():
+    jikan_data_path = "jikan.txt"
     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
-        final_result = await client.get_years_of_seasonal_data_v2(2025,2025)
-        print(final_result[2025]['fall'])
-        print(client.errors)
-        # coba bikin list baru yang isinya hanya theme -> isekai
-        # tampilkan jumlah isekai di sebuah season / tampilkan total isekai di itu season
-        # tampilkan jumlah isekai yearly / yg normal 
+        if os.path.exists(jikan_data_path):
+            print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
+            # 
+            seasonal_data = load_data_from_file(jikan_data_path)
+        else:
+            print(Fore.YELLOW + "Gathering data from Jikan.moe")
+            # 
+            seasonal_data = await client.get_years_of_seasonal_data_v2(2025,2025)
+            client.print_error()
+            save_data_to_file(seasonal_data,jikan_data_path)
+        # data_processor = JikanDataProcessor(seasonal_data)
+        # data_processor.gather_isekai_data()
 
 if __name__ == "__main__":
     asyncio.run(main())
