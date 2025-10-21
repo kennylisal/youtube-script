@@ -55,11 +55,9 @@ class AsyncAPIClient:
                             
                 except aiohttp.ClientResponseError as e:
                     line_print(Back.RED , f"aiohttp client error GET {api_url}")
-                    # self.errors.append(e)
                     raise e
                 except Exception as e:
                     line_print(Back.RED , f"Error Occured Request GET {api_url}")
-                    # self.errors.append(e)
                     raise e
                 
                 await asyncio.sleep(3)
@@ -98,7 +96,8 @@ class AsyncAPIClient:
             raise e
 
     
-    async def add_data_to_final_result(self, year:int, season:str):
+    async def add_data_to_final_result(self, season_year:int, season:str):
+        year = str(season_year)
         api_path = f"/seasons/{year}/{season}"
         try:
             if year not in self.results:
@@ -134,17 +133,28 @@ class AsyncAPIClient:
                 print(Fore.RED + error)
 
 class JikanDataProcessor:
-    def __init__(self, base_data : dict[int,dict[str,dict]]):
+    def __init__(self, base_data : dict[str,dict[str,dict]]):
         self.base_data = base_data
         self.isekai_data = {}
 
     def gather_isekai_data(self):
+        print(self.base_data["2025"]["spring"]["data"][0])
         for year in self.base_data:
             for season in self.base_data[year]:
                 anime_list : list = self.base_data[year][season].get("data",[])
                 for anime in anime_list:
-                    if anime.get('themes','x').get('name','x') == "Isekai":
-                        print(anime.get("mal_id","pusing"))
+                    anime_theme_dict = anime.get('themes','x')
+                    is_isekai = self.check_if_themes_contain_isekai(anime_theme_dict)
+                    if is_isekai:
+                        print(anime.get("title","pusing"))
+    
+    def check_if_themes_contain_isekai(self, themes:list[dict]):
+        for theme in themes:
+            theme_name = theme.get('name','x')
+            if theme_name == "Isekai":
+                return True
+        return False
+
 
 def save_data_to_file(data:dict, file_path:str = "data.txt"):
     with open(file_path,'w', encoding='utf-8') as file:
@@ -170,8 +180,8 @@ async def main():
             seasonal_data = await client.get_years_of_seasonal_data_v2(2025,2025)
             client.print_error()
             save_data_to_file(seasonal_data,jikan_data_path)
-        # data_processor = JikanDataProcessor(seasonal_data)
-        # data_processor.gather_isekai_data()
+        data_processor = JikanDataProcessor(seasonal_data)
+        data_processor.gather_isekai_data()
 
 if __name__ == "__main__":
     asyncio.run(main())
