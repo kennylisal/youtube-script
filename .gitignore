@@ -9,3 +9,4 @@ wheels/
 # Virtual environments
 .venv
 jikan.txt
+jikan_error.txt

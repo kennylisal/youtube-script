@@ -4,7 +4,8 @@ import asyncio
 from colorama import init, Fore, Back, Style
 import os
 import json
-
+import random
+from typing import Literal
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
@@ -40,8 +41,8 @@ class AsyncAPIClient:
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
-                    if path == 'seasons/2025/summer?page=1&filter=tv' or path == 'seasons/2025/winter?page=3&filter=tv':
-                        raise APIClientError(path=path,error=Exception(f"Error Occured Request GET {api_url}"))
+                    if random.randint(0,5) == 3:
+                        raise APIClientError(url=api_url,error=Exception(f"Error Occured Request GET {api_url}"),type='paginate')
                     async with self.session.get(api_url) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -56,13 +57,13 @@ class AsyncAPIClient:
                                 )
                             
                 except aiohttp.ClientResponseError as e:
-                    self.raise_error(error=APIClientError(path=path,error=e))
+                    line_print(Back.RED, f"API Error at path '{path}' attemp {attempt}/{max_attemps}")
                 except Exception as e:
-                    self.raise_error(error=APIClientError(path=path,error=e))
+                    line_print(Back.RED, f"API Error at path '{path}' attemp {attempt}/{max_attemps}")
                 
                 await asyncio.sleep(3)
         msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
-        self.raise_error(error=APIClientError(path=path,error=RuntimeError(msg)))
+        self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate'))
     
     def filter_wanted_attributes(self,anime_list : list[dict],filter_keys:list[str] = ["mal_id","url","approved","title","title_english","aired","rating","season","year","broadcast","studios","genres","explicit_genres","themes","demographics","score","scored_by"]):
         anime_data = [{k: anime.get(k) for k in filter_keys if k in anime} for anime in anime_list ]
@@ -99,8 +100,8 @@ class AsyncAPIClient:
             return pagination,processed_data
         except Exception as e:
             if not isinstance(e,APIClientError):
-                e = APIClientError(path,e)
-            self.raise_error(error=APIClientError(path=path,error=e))
+                e = APIClientError(path,e,type='path')
+            self.raise_error(error=APIClientError(url=self.generate_url(path),error=e,type='path'))
 
     
     async def add_data_to_final_result(self, season_year:int, season:str):
@@ -114,7 +115,7 @@ class AsyncAPIClient:
 
         except Exception as e:
             if not isinstance(e,APIClientError):
-                e = APIClientError(api_path,e)
+                e = APIClientError(api_path,e,type='path')
             self.raise_error(error=e)
 
     async def get_years_of_seasonal_data_v2(self, year_start = 2000, year_end = 2025):
@@ -132,14 +133,20 @@ class AsyncAPIClient:
         if len(self.errors) == 0:  # Or: if len(self.errors) == 0:
             print(Fore.RED + "No Error Occurred")  # Fixed spelling too
         else:
-            for error in self.errors:
-                print(Fore.RED + error)
+            print(Fore.RED + f"{len(self.errors)} occured")
+            # for error in self.errors:
+            #     print(Fore.RED + error)
 
     def raise_error(self, error:Exception):
         error_msg = str(error)
         line_print(Back.RED , error_msg)
-        self.errors.append(error)
+        if isinstance(error, APIClientError):
+            self.errors.append(error._get_json_format())
         raise error
+    
+    def clear_error(self):
+        print("re-fetch all the rror path")
+
 
 class JikanDataProcessor:
     def __init__(self, base_data : dict[str,dict[str,dict]]):
@@ -164,18 +171,29 @@ class JikanDataProcessor:
                 return True
         return False
 
+
+
 class APIClientError(Exception):
-    def __init__(self, path: str, error: Exception):
-        self.path = path
+    def __init__(self, url: str, error: Exception, type : Literal["paginate","path"]):
+        self.url = url
         self.error = error  
         self.__cause__ = error 
+        self.type = type
         
         # Fixed: Derive message from the passed error instance (no 'details' needed)
         error_message = str(error) if error else "Unknown error" 
-        super_message = f"API Error at path '{path}': {error_message}"
-        super().__init__(super_message) 
+        super_message = f"API Error at path '{url}': {error_message}"
+        super().__init__(super_message)
+    
+    def _get_json_format(self):
+        return {
+            "path" : self.url,
+            "error" : str(self.error)
+        }
 
-def save_data_to_file(data:dict, file_path:str = "data.txt"):
+
+
+def save_data_to_file(data, file_path:str = "data.txt"):
     with open(file_path,'w', encoding='utf-8') as file:
         json.dump(data,file,ensure_ascii=False, indent=4)
 
@@ -199,6 +217,7 @@ async def main():
             seasonal_data = await client.get_years_of_seasonal_data_v2(2025,2025)
             client.print_error()
             save_data_to_file(seasonal_data,jikan_data_path)
+            save_data_to_file(client.errors, "jikan_error.txt")
         # data_processor = JikanDataProcessor(seasonal_data)
         # data_processor.gather_isekai_data()
 
