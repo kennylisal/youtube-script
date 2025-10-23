@@ -35,11 +35,13 @@ class AsyncAPIClient:
         new_url = urlunparse((scheme, netloc, path, '', new_query, ''))
         return new_url
     
-    async def get(self, path: str, params: dict = {}, max_attemps = 3):
+    async def get_jikan_moe(self, path: str, params: dict = {}, max_attemps = 3):
         api_url = self.generate_url(path, params)
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
+                    if path == 'seasons/2025/summer?page=1&filter=tv' or path == 'seasons/2025/winter?page=3&filter=tv':
+                        raise APIClientError(path=path,error=Exception(f"Error Occured Request GET {api_url}"))
                     async with self.session.get(api_url) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -54,20 +56,23 @@ class AsyncAPIClient:
                                 )
                             
                 except aiohttp.ClientResponseError as e:
-                    line_print(Back.RED , f"aiohttp client error GET {api_url}")
-                    raise e
+                    self.raise_error(error=APIClientError(path=path,error=e))
                 except Exception as e:
-                    line_print(Back.RED , f"Error Occured Request GET {api_url}")
-                    raise e
+                    self.raise_error(error=APIClientError(path=path,error=e))
                 
                 await asyncio.sleep(3)
-        raise RuntimeError(f"Exhausted {max_attemps + 1} attempts for {api_url} without success")
+        msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
+        self.raise_error(error=APIClientError(path=path,error=RuntimeError(msg)))
+    
+    def filter_wanted_attributes(self,anime_list : list[dict],filter_keys:list[str] = ["mal_id","url","approved","title","title_english","aired","rating","season","year","broadcast","studios","genres","explicit_genres","themes","demographics","score","scored_by"]):
+        anime_data = [{k: anime.get(k) for k in filter_keys if k in anime} for anime in anime_list ]
+        return anime_data
 
     # this is for get all the data from a path
     # this is used to get all the paginated data
-    async def get_path_entire_data(self, path : str):
+    async def get_path_entire_data(self, path : str, ):
         try:
-            first_data = await self.get(path)
+            first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : 'tv'})
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
                 raise Exception({"error" : f"{path} data is corrupt, no pagination data", "path": path})
@@ -81,7 +86,7 @@ class AsyncAPIClient:
                 tasks = []
                 for i in range(1,page_count):
                     current_index = i + 1
-                    tasks.append(self.get(path,params={'page':current_index}))
+                    tasks.append(self.get_jikan_moe(path,params={'page':current_index,'filter' : 'tv'}))
                 results = await asyncio.gather(*tasks)
                 # 
                 for result in results:
@@ -89,11 +94,13 @@ class AsyncAPIClient:
                     if anime_data is not None:
                         final_result.extend(anime_data)
             print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
-            return pagination,final_result
-        except RuntimeError as e:
-            raise e
+            processed_data = self.filter_wanted_attributes(final_result)
+                
+            return pagination,processed_data
         except Exception as e:
-            raise e
+            if not isinstance(e,APIClientError):
+                e = APIClientError(path,e)
+            self.raise_error(error=APIClientError(path=path,error=e))
 
     
     async def add_data_to_final_result(self, season_year:int, season:str):
@@ -104,16 +111,12 @@ class AsyncAPIClient:
                 self.results[year] = {}
             pagination_info,path_data = await self.get_path_entire_data(api_path)
             self.results[year][season] = {"data" : path_data, "pagination_info" : pagination_info}
-        except Exception as e:
-            self.errors.append({"error" : e, "path" : api_path})
-            raise e
 
-    # {
-    #   2025 : {
-    #   'winter' : 
-    #   },
-    #  'summer': {}
-    # }
+        except Exception as e:
+            if not isinstance(e,APIClientError):
+                e = APIClientError(api_path,e)
+            self.raise_error(error=e)
+
     async def get_years_of_seasonal_data_v2(self, year_start = 2000, year_end = 2025):
         tasks = []
         seasons = ['winter', 'spring', 'summer', 'fall']
@@ -126,11 +129,17 @@ class AsyncAPIClient:
 
     def print_error(self):
         line_print(Back.RED, "Here are the errors during data gathering")
-        if self.errors.count == 0:
-            print(Fore.RED + "No Error Occured")
+        if len(self.errors) == 0:  # Or: if len(self.errors) == 0:
+            print(Fore.RED + "No Error Occurred")  # Fixed spelling too
         else:
             for error in self.errors:
                 print(Fore.RED + error)
+
+    def raise_error(self, error:Exception):
+        error_msg = str(error)
+        line_print(Back.RED , error_msg)
+        self.errors.append(error)
+        raise error
 
 class JikanDataProcessor:
     def __init__(self, base_data : dict[str,dict[str,dict]]):
@@ -138,7 +147,7 @@ class JikanDataProcessor:
         self.isekai_data = {}
 
     def gather_isekai_data(self):
-        print(self.base_data["2025"]["spring"]["data"][0])
+        # print(self.base_data["2025"]["spring"]["data"][0])
         for year in self.base_data:
             for season in self.base_data[year]:
                 anime_list : list = self.base_data[year][season].get("data",[])
@@ -155,6 +164,16 @@ class JikanDataProcessor:
                 return True
         return False
 
+class APIClientError(Exception):
+    def __init__(self, path: str, error: Exception):
+        self.path = path
+        self.error = error  
+        self.__cause__ = error 
+        
+        # Fixed: Derive message from the passed error instance (no 'details' needed)
+        error_message = str(error) if error else "Unknown error" 
+        super_message = f"API Error at path '{path}': {error_message}"
+        super().__init__(super_message) 
 
 def save_data_to_file(data:dict, file_path:str = "data.txt"):
     with open(file_path,'w', encoding='utf-8') as file:
@@ -180,8 +199,8 @@ async def main():
             seasonal_data = await client.get_years_of_seasonal_data_v2(2025,2025)
             client.print_error()
             save_data_to_file(seasonal_data,jikan_data_path)
-        data_processor = JikanDataProcessor(seasonal_data)
-        data_processor.gather_isekai_data()
+        # data_processor = JikanDataProcessor(seasonal_data)
+        # data_processor.gather_isekai_data()
 
 if __name__ == "__main__":
     asyncio.run(main())
