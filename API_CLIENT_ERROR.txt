@@ -1,0 +1,38 @@
+[
+    {
+        "path": "/seasons/2023/winter",
+        "error": "Artificial error by me",
+        "type": "path",
+        "url": ""
+    },
+    {
+        "path": "",
+        "error": "Exhausted 4 attempts for https://api.jikan.moe/v4/seasons/2023/fall?page=4&filter=tv without success",
+        "type": "paginate",
+        "url": "https://api.jikan.moe/v4/seasons/2023/fall?page=4&filter=tv"
+    },
+    {
+        "path": "",
+        "error": "Exhausted 4 attempts for https://api.jikan.moe/v4/seasons/2024/summer?page=1&filter=tv without success",
+        "type": "paginate",
+        "url": "https://api.jikan.moe/v4/seasons/2024/summer?page=1&filter=tv"
+    },
+    {
+        "path": "",
+        "error": "Exhausted 4 attempts for https://api.jikan.moe/v4/seasons/2024/summer?page=1&filter=tv without success",
+        "type": "paginate",
+        "url": "https://api.jikan.moe/v4/seasons/2024/summer?page=1&filter=tv"
+    },
+    {
+        "path": "",
+        "error": "Exhausted 4 attempts for https://api.jikan.moe/v4/seasons/2025/summer?page=4&filter=tv without success",
+        "type": "paginate",
+        "url": "https://api.jikan.moe/v4/seasons/2025/summer?page=4&filter=tv"
+    },
+    {
+        "path": "",
+        "error": "Exhausted 4 attempts for https://api.jikan.moe/v4/seasons/2025/fall?page=2&filter=tv without success",
+        "type": "paginate",
+        "url": "https://api.jikan.moe/v4/seasons/2025/fall?page=2&filter=tv"
+    }
+]

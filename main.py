@@ -13,12 +13,17 @@ async def main():
     client_errors = []
     db_handler.init_db()
     for year in range(MIN_YEAR,MAX_YEAR):
+        data = None
         try:
             data,errors = await mal_script.get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
             db_handler.insert_from_dict(data)
             client_errors.extend(errors)
         except Exception as e:
+            # this is only to catch sqllite write error
             main_errors.append(MainError(e, year)._get_json_format())
+            if data is not None:
+                file_path = f"jikan/{year}"
+                db_handler.save_data_to_file(data, file_path)
 
     db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
     db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
