@@ -6,17 +6,20 @@ import os
 import json
 import random
 from typing import Literal
+import db_handler
+
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
 class AsyncAPIClient:
-    def __init__(self, base_url:str, headers : dict = {}, max_concurrency = 4):
+    def __init__(self, base_url:str,anime_type:Literal['tv', 'ova', 'ona','movie'], headers : dict = {} ,max_concurrency = 4 ):
         self.base_url = base_url.rstrip('/')
         self.headers = headers
         self.errors = []
         self.max_concurrency = max_concurrency
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self.results = {}
+        self.anime_type = anime_type
     
     async def __aenter__(self):
         # connector = aiohttp.TCPConnector(limit=1)  # 1 concurrent connection
@@ -41,8 +44,8 @@ class AsyncAPIClient:
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
-                    # if random.randint(0,6) == 3:
-                    #     break
+                    if random.randint(0,6) == 3:
+                        break
                     async with self.session.get(api_url) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -73,9 +76,9 @@ class AsyncAPIClient:
     # this is used to get all the paginated data
     async def get_path_entire_data(self, path : str, ):
         try:
-            # if random.randint(0,4) == 1:
-            #     raise APIClientError(error=Exception("Artificial error by me"),type="path",path=path)
-            first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : 'tv'})
+            if random.randint(0,4) == 1:
+                raise APIClientError(error=Exception("Artificial error by me"),type="path",path=path)
+            first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
                 raise Exception({"error" : f"{path} data is corrupt, no pagination data", "path": path})
@@ -89,7 +92,7 @@ class AsyncAPIClient:
                 tasks = []
                 for i in range(1,page_count):
                     current_index = i + 1
-                    tasks.append(self.get_jikan_moe(path,params={'page':current_index,'filter' : 'tv'}))
+                    tasks.append(self.get_jikan_moe(path,params={'page':current_index,'filter' : self.anime_type}))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 # 
                 for result in results:
@@ -130,6 +133,15 @@ class AsyncAPIClient:
                 tasks.append(new_task)
         await asyncio.gather(*tasks, return_exceptions=True)
         return self.results
+    
+    async def get_year_seasonal_data(self, year:int):
+        tasks = []
+        seasons = ['winter', 'spring', 'summer', 'fall']
+        for season in seasons:
+                new_task = self.add_data_to_final_result(year,season)
+                tasks.append(new_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return self.results
 
     def print_error(self):
         line_print(Back.RED, "Here are the errors during data gathering")
@@ -147,32 +159,6 @@ class AsyncAPIClient:
     
     def clear_error(self):
         print("re-fetch all the rror path")
-
-
-class JikanDataProcessor:
-    def __init__(self, base_data : dict[str,dict[str,dict]]):
-        self.base_data = base_data
-        self.isekai_data = {}
-
-    def gather_isekai_data(self):
-        # print(self.base_data["2025"]["spring"]["data"][0])
-        for year in self.base_data:
-            for season in self.base_data[year]:
-                anime_list : list = self.base_data[year][season].get("data",[])
-                for anime in anime_list:
-                    anime_theme_dict = anime.get('themes','x')
-                    is_isekai = self.check_if_themes_contain_isekai(anime_theme_dict)
-                    if is_isekai:
-                        print(anime.get("title","pusing"))
-    
-    def check_if_themes_contain_isekai(self, themes:list[dict]):
-        for theme in themes:
-            theme_name = theme.get('name','x')
-            if theme_name == "Isekai":
-                return True
-        return False
-
-
 
 class APIClientError(Exception):
     def __init__(self, error: Exception, type : Literal["paginate","path"],url: str = "",path:str = ""):
@@ -195,33 +181,52 @@ class APIClientError(Exception):
             "url" : self.url
         }
 
-
-
-def save_data_to_file(data, file_path:str = "data.txt"):
-    with open(file_path,'w', encoding='utf-8') as file:
-        json.dump(data,file,ensure_ascii=False, indent=4)
-
-def load_data_from_file(file_path:str = "jikan.txt"):
-    if os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    else:
-        raise FileNotFoundError(f"Data file '{file_path}' not found.")
-
 async def main():
     jikan_data_path = "jikan.txt"
-    async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
-        if os.path.exists(jikan_data_path):
-            print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
-            # 
-            seasonal_data = load_data_from_file(jikan_data_path)
-        else:
-            print(Fore.YELLOW + "Gathering data from Jikan.moe")
-            # 
-            seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
-            client.print_error()
-            save_data_to_file(seasonal_data,jikan_data_path)
-            save_data_to_file(client.errors, "jikan_error.txt")
+    # async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type="tv") as client:
+    #     if os.path.exists(jikan_data_path):
+    #         print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
+    #         # 
+    #         seasonal_data = load_data_from_file(jikan_data_path)
+    #     else:
+    #         print(Fore.YELLOW + "Gathering data from Jikan.moe")
+    #         # 
+    #         seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
+    #         client.print_error()
+    #         save_data_to_file(seasonal_data,jikan_data_path)
+    #         save_data_to_file(client.errors, "API_CLIENT_ERROR.txt")
+    #     return seasonal_data
+
+async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona','movie']):
+        async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
+            year_data = await client.get_year_seasonal_data(year)
+            return year_data,client.errors
+
+# def save_data_to_file(data, file_path:str = "data.txt"):
+#     with open(file_path,'w', encoding='utf-8') as file:
+#         json.dump(data,file,ensure_ascii=False, indent=4)
+
+# def load_data_from_file(file_path:str = "jikan.txt"):
+#     if os.path.exists(file_path):
+#         with open(file_path, 'r', encoding='utf-8') as f:
+#             return json.load(f)
+#     else:
+#         raise FileNotFoundError(f"Data file '{file_path}' not found.")
+
+# async def testing():
+#     jikan_data_path = "jikan.txt"
+#     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
+#         if os.path.exists(jikan_data_path):
+#             print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
+#             # 
+#             seasonal_data = load_data_from_file(jikan_data_path)
+#         else:
+#             print(Fore.YELLOW + "Gathering data from Jikan.moe")
+#             # 
+#             seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
+#             client.print_error()
+#             save_data_to_file(seasonal_data,jikan_data_path)
+#             save_data_to_file(client.errors, "jikan_error.txt")
         # data_processor = JikanDataProcessor(seasonal_data)
         # data_processor.gather_isekai_data()
 

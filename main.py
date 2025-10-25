@@ -1,41 +1,52 @@
-import requests
-from typing import Dict, Optional, Any
-from urllib.parse import urlencode, urlparse, urlunparse
+import asyncio
+import mal_script
+import db_handler
 
-class APIClient:
-    def __init__(self, base_url : str, headers : Optional[Dict]) -> None:
-        self.base_url = base_url.rstrip('/')
-        self.session = requests.Session()
 
-    def generate_url(self,path='', query_dict={}):
-        scheme = 'https'
-        netloc = self.base_url
-
-        new_query = urlencode(query_dict,doseq=True)
-
-        new_url = urlunparse((scheme,netloc,path,'',new_query,''))
-        return new_url
-    
-    def _make_request(self, method, endpoint:str, params:dict):
-        url = self.generate_url(path=endpoint, query_dict=params)
-        print(url)
+async def main():
+    MAX_YEAR = 2025 + 1
+    MIN_YEAR = 2020
+    MAIN_ERROR_PATH = "MAIN_ERROR.txt"
+    API_CLIENT_ERROR_PATH = "API_CLIENT_ERROR.txt"
+    ANIME_TYPE = 'tv'
+    main_errors = []
+    client_errors = []
+    db_handler.init_db()
+    for year in range(MIN_YEAR,MAX_YEAR):
         try:
-            response = self.session.request(method,url,params)
-            response.raise_for_status() # ini untuk raise except, jika status jelek
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"request failed : {e}")
-            raise e
+            data,errors = await mal_script.get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
+            db_handler.insert_from_dict(data)
+            client_errors.extend(errors)
+        except Exception as e:
+            main_errors.append(MainError(e, year)._get_json_format())
+
+    db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
+    db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
+
+
+class MainError(Exception):
+    def __init__(self, error:Exception, year) -> None:
+        self.year = str(year)
+        self.error = error
+        self.__cause__ = error
+
+        super_message = f"Error when retrieving {year}"
+        super().__init__(super_message)
     
-    def get(self,endpoint: str, params= {}):
-        response = self._make_request('GET',endpoint,params)
-        return response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
-
-
-def main():
-    client = APIClient("api.jikan.moe/v4",headers={})
-    data = client.get('seasons/now', params={'page':2})
-    print(data)
+    def _get_json_format(self):
+        return {
+            "year" : self.year,
+            "error" : str(self.error)
+        }
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
+    # try:
+    #     if not db_handler.check_db_exist():
+    #         seasonal_dict = await mal_script.main()
+    #         db_handler.init_db()
+    #         db_handler.insert_from_dict(seasonal_dict)
+    #     db_handler.test_query()
+    # except Exception as e:
+    #     print(e)
