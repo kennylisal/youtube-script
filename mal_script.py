@@ -1,12 +1,9 @@
 import aiohttp
 from urllib.parse import urlunparse, urlencode
 import asyncio
-from colorama import init, Fore, Back, Style
-
 import random
 from typing import Literal
-import db_handler
-
+from colorama import init, Fore, Back, Style
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
@@ -40,6 +37,10 @@ class AsyncAPIClient:
     
     async def get_jikan_moe(self, path: str, params: dict = {}, max_attemps = 4, direct_url = None):
         api_url = self.generate_url(path, params)
+        if direct_url is not None:
+            api_url = direct_url
+            path = direct_url
+        last_aiohttp_caught_error = None
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
@@ -59,13 +60,14 @@ class AsyncAPIClient:
                                 )
                             
                 except aiohttp.ClientResponseError as e:
+                    last_aiohttp_caught_error = e
                     line_print(Back.RED, f"API Error at path '{path}' attemp {attempt+1}/{max_attemps + 1}")
                 except Exception as e:
                     line_print(Back.RED, f"API Error at path '{path}' attemp {attempt + 1}/{max_attemps + 1}")
                 
                 await asyncio.sleep(3)
         msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
-        self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate'))
+        self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate',aiohttp_error=last_aiohttp_caught_error))
 
     def filter_wanted_attributes(self,anime_list : list[dict],filter_keys:list[str] = ["mal_id","url","approved","title","title_english","aired","rating","season","year","broadcast","studios","genres","explicit_genres","themes","demographics","score","scored_by"]):
         anime_data = [{k: anime.get(k) for k in filter_keys if k in anime} for anime in anime_list ]
@@ -160,12 +162,13 @@ class AsyncAPIClient:
         print("re-fetch all the rror path")
 
 class APIClientError(Exception):
-    def __init__(self, error: Exception, type : Literal["paginate","path"],url: str = "",path:str = ""):
+    def __init__(self, error: Exception, type : Literal["paginate","path"],url: str = "",path:str = "", aiohttp_error = None):
         self.url = url
         self.error = error  
         self.__cause__ = error 
         self.type = type
         self.path = path
+        self.aiohttp_error = str(aiohttp_error)
         
         # Fixed: Derive message from the passed error instance (no 'details' needed)
         error_message = str(error) if error else "Unknown error" 
@@ -177,11 +180,13 @@ class APIClientError(Exception):
             "path" : self.path,
             "error" : str(self.error),
             "type" : self.type,
-            "url" : self.url
+            "url" : self.url,
+            "aiohttp_error" : self.aiohttp_error
         }
 
 async def main():
-    jikan_data_path = "jikan.txt"
+    print("main from mal_script.py")
+    # jikan_data_path = "jikan.txt"
     # async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type="tv") as client:
     #     if os.path.exists(jikan_data_path):
     #         print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
@@ -195,70 +200,6 @@ async def main():
     #         save_data_to_file(seasonal_data,jikan_data_path)
     #         save_data_to_file(client.errors, "API_CLIENT_ERROR.txt")
     #     return seasonal_data
-
-async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona','movie']):
-        async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
-            year_data = await client.get_year_seasonal_data(year)
-            return year_data,client.errors
-
-# def save_data_to_file(data, file_path:str = "data.txt"):
-#     with open(file_path,'w', encoding='utf-8') as file:
-#         json.dump(data,file,ensure_ascii=False, indent=4)
-
-# def load_data_from_file(file_path:str = "jikan.txt"):
-#     if os.path.exists(file_path):
-#         with open(file_path, 'r', encoding='utf-8') as f:
-#             return json.load(f)
-#     else:
-#         raise FileNotFoundError(f"Data file '{file_path}' not found.")
-
-# async def testing():
-#     jikan_data_path = "jikan.txt"
-#     async with AsyncAPIClient("api.jikan.moe/v4",headers={}) as client:
-#         if os.path.exists(jikan_data_path):
-#             print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
-#             # 
-#             seasonal_data = load_data_from_file(jikan_data_path)
-#         else:
-#             print(Fore.YELLOW + "Gathering data from Jikan.moe")
-#             # 
-#             seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
-#             client.print_error()
-#             save_data_to_file(seasonal_data,jikan_data_path)
-#             save_data_to_file(client.errors, "jikan_error.txt")
-        # data_processor = JikanDataProcessor(seasonal_data)
-        # data_processor.gather_isekai_data()
-
-async def api_request(direct_url:str, max_attemps = 4 ):
-        api_url = direct_url
-        this_session = aiohttp.ClientSession(headers={})
-        for attempt in range(max_attemps+1):
-            try:
-                if random.randint(0,6) == 3:
-                    break
-                async with this_session.get(api_url) as res:
-                    if res.status == 200:
-                        data = await res.json()
-                        line_print(Back.GREEN,f"Success fetch data from {api_url}")
-                        return data
-                    else:
-                        line_print(Back.YELLOW, f"Bad status {res.status} for {api_url}, attempt {attempt + 1}/{max_attemps + 1}")
-                        if attempt == max_attemps:
-                            raise aiohttp.ClientResponseError(
-                                res.request_info, res.history, status=res.status,
-                                message=f"Failed after {max_attemps + 1} attempts"
-                            )
-                        
-            except aiohttp.ClientResponseError as e:
-                line_print(Back.RED, f"API Error at path '{path}' attemp {attempt+1}/{max_attemps + 1}")
-            except Exception as e:
-                line_print(Back.RED, f"API Error at path '{path}' attemp {attempt + 1}/{max_attemps + 1}")
-            
-            await asyncio.sleep(3)
-        msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
-        self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate'))
-
-        await this_session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,7 +1,7 @@
 import asyncio
 import mal_script
 import db_handler
-
+from typing import Literal
 
 async def main():
     MAX_YEAR = 2025 + 1
@@ -15,7 +15,7 @@ async def main():
     for year in range(MIN_YEAR,MAX_YEAR):
         data = None
         try:
-            data,errors = await mal_script.get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
+            data,errors = await get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
             db_handler.insert_from_dict(data)
             client_errors.extend(errors)
         except Exception as e:
@@ -28,6 +28,10 @@ async def main():
     db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
     db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
 
+async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona','movie']):
+    async with mal_script.AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
+        year_data = await client.get_year_seasonal_data(year)
+        return year_data,client.errors
 
 class MainError(Exception):
     def __init__(self, error:Exception, year) -> None:

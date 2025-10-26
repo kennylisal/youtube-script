@@ -1,19 +1,29 @@
 import os
 import json
-import mal_script
+from mal_script import APIClientError, line_print, AsyncAPIClient
 import urllib.parse
 from typing import Literal
+import asyncio
+import aiohttp
+from colorama import Back
 class ErrorSolver():
-    def __init__(self, main_error_path, client_error_path, error_log_path) -> None:
-        self.main_error_path = main_error_path
-        self.client_error_path = client_error_path
-        self.error_log_path= error_log_path
-
+    def __init__(self, main_error_path, client_error_path, error_log_path, anime_type,max_concurrency = 2) -> None:
+        self.semaphore = asyncio.Semaphore(max_concurrency)
         self.client_errors = self.load_data_from_file(client_error_path)
         self.main_error_path = self.load_data_from_file(main_error_path)
         self.error_logs = self.load_data_from_file(error_log_path, must_exist=False)
         self.results = {}
         self.new_errors = []
+        self.anime_type = anime_type
+    
+    async def __aenter__(self):
+        # connector = aiohttp.TCPConnector(limit=1)  # 1 concurrent connection
+        self.session = aiohttp.ClientSession(headers={})
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
 
     def load_data_from_file(self, file_path:str, must_exist = True):
         if os.path.exists(file_path):
@@ -32,10 +42,101 @@ class ErrorSolver():
             if year  not in self.results:
                 self.results[year] = {}
             self.results[year][season] 
+
+
     
-    async def resolve_error(self,type:Literal['path','paginate'], url = '',path=''):
-        if type == 'paginate' : 
-            return await mal_script.get_jikan
+    async def get_direct_api_data_from_url(self,direct_url, anime_type):
+        async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
+            try:
+                api_data = await client.get_jikan_moe('',{},direct_url=direct_url)
+                return api_data
+            except Exception as e:
+                if isinstance(e, APIClientError):
+                    self.new_errors.append(e._get_json_format())
+                    raise e
+                exception =  APIClientError(error=e,type="paginate")
+                self.new_errors.append(exception._get_json_format())
+                raise exception
+    
+    async def get_path_data(self,path,anime_type)->tuple[dict,list]:
+        async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
+            try:
+                path_data = await client.get_path_entire_data(path=path)
+                return path_data
+            except Exception as e:
+                if isinstance(e, APIClientError):
+                    self.new_errors.append(e._get_json_format())
+                    raise e
+                exception =  APIClientError(error=e,type="paginate")
+                self.new_errors.append(exception._get_json_format())
+                raise exception
+    
+    async def get_year_mal_data(self,year,anime_type):
+        async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
+            try:
+                year_data = await client.get_year_seasonal_data(year)
+                return year_data
+            except Exception as e:
+                self.raise_error(e)
+
+    def raise_error(self,error:Exception):
+        line_print(Back.RED , str(error))
+        if isinstance(error, APIClientError):
+            self.new_errors.append(error._get_json_format())
+            raise error
+        exception =  APIClientError(error=error,type="paginate")
+        self.new_errors.append(exception._get_json_format())
+        raise exception
+    
+    async def add_to_final_result(self, year, season):
+        if year not in self.results:
+            self.results[year] = {}
+    
+    async def resolve_paginate_error(self, error:dict[str,any]): # type: ignore
+        try:
+            url = error.get('url')
+            year,season = self.get_year_season_from_url(url)
+            data = await self.get_direct_api_data_from_url(url,self.anime_type)
+            self.results.setdefault(year, {}).setdefault(season, []).extend(data)
+        except Exception as e:
+            if not isinstance(e,APIClientError):
+                line_print(Back.RED, str(e))
+            raise e
+        
+    async def resolve_path_error(self, error:dict[str,any]) # type: ignore
+        try:
+            path = error.get('path')
+            year,season = self.get_year_season_from_path(path)
+            pagination, data =  await self.get_path_data(path,self.anime_type)
+            self.results.setdefault(year, {})[season] = {"data": data, "pagination_info": pagination}
+        except Exception as e:
+            if not isinstance(e,APIClientError):
+                line_print(Back.RED, str(e))
+            raise e
+
+    # main function
+    async def resolve_client_errors(self):
+        tasks = []
+        for error in self.client_errors:
+            if error.type == 'paginate' :
+                tasks.append(self.resolve_paginate_error(error))
+            else:
+                tasks.append(self.resolve_path_error(error))
+        await asyncio.gather(*tasks,return_exceptions=True)
+            
+    def get_year_season_from_url(self, url):
+        parsed_url = urllib.parse.urlparse(url)
+        path = parsed_url.path
+        parts = path.split('/')
+        year = int(parts[3])
+        season = parts[4]
+        return year,season
+
+    def get_year_season_from_path(self,path):
+        parts = path.split('/')
+        year = int(parts[2])
+        season = parts[3]
+        return year,season
 
     def get_season_and_year(self,error_instance:dict):
         if error_instance.get('type') == "path":
