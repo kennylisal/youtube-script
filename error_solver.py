@@ -15,6 +15,7 @@ class ErrorSolver():
         self.results = {}
         self.new_errors = []
         self.anime_type = anime_type
+        # planning to make error log to be divided by time executed
     
     async def __aenter__(self):
         # connector = aiohttp.TCPConnector(limit=1)  # 1 concurrent connection
@@ -88,10 +89,6 @@ class ErrorSolver():
         self.new_errors.append(exception._get_json_format())
         raise exception
     
-    async def add_to_final_result(self, year, season):
-        if year not in self.results:
-            self.results[year] = {}
-    
     async def resolve_paginate_error(self, error:dict[str,any]): # type: ignore
         try:
             url = error.get('url')
@@ -123,6 +120,7 @@ class ErrorSolver():
             else:
                 tasks.append(self.resolve_path_error(error))
         await asyncio.gather(*tasks,return_exceptions=True)
+        return self.results
             
     def get_year_season_from_url(self, url):
         parsed_url = urllib.parse.urlparse(url)

@@ -2,12 +2,16 @@ import asyncio
 import mal_script
 import db_handler
 from typing import Literal
+from error_solver import ErrorSolver
+
+MAIN_ERROR_PATH = "MAIN_ERROR.txt"
+API_CLIENT_ERROR_PATH = "API_CLIENT_ERROR.txt"
+ERROR_SOLVER_LOG_PATH = "error_solver_log.txt"
 
 async def main():
     MAX_YEAR = 2025 + 1
     MIN_YEAR = 2020
-    MAIN_ERROR_PATH = "MAIN_ERROR.txt"
-    API_CLIENT_ERROR_PATH = "API_CLIENT_ERROR.txt"
+
     ANIME_TYPE = 'tv'
     main_errors = []
     client_errors = []
@@ -32,6 +36,12 @@ async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona'
     async with mal_script.AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
         year_data = await client.get_year_seasonal_data(year)
         return year_data,client.errors
+
+async def run_error_resolver():
+    async with ErrorSolver(anime_type='tv',client_error_path=API_CLIENT_ERROR_PATH,main_error_path=MAIN_ERROR_PATH,error_log_path=ERROR_SOLVER_LOG_PATH) as solver:
+        re_fetched_data = await solver.resolve_client_errors()
+        db_handler.insert_missing_anime_from_dict(re_fetched_data)
+        db_handler.save_data_to_file(solver.new_errors, ERROR_SOLVER_LOG_PATH, clear_file=True)
 
 class MainError(Exception):
     def __init__(self, error:Exception, year) -> None:

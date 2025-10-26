@@ -110,6 +110,65 @@ def insert_from_dict(results: dict):
         if conn:
             conn.close()
 
+def insert_missing_anime_from_dict(results: dict):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        for year_str, year_data in results.items():
+            year = int(year_str)
+            for season, season_data in year_data.items():
+                # Get season ID (assume it exists; raise error if not)
+                cursor.execute('SELECT id FROM seasons WHERE year = ? AND season = ?', (year, season))
+                season_row = cursor.fetchone()
+                if season_row is None:
+                    raise ValueError(f"Season {season} for year {year} does not exist in the database.")
+                season_id = season_row[0]
+                
+                anime_list = season_data.get('data', [])
+                anime_tuples = []
+                for anime in anime_list:
+                    anime_tuples.append((
+                        anime.get('mal_id', None),
+                        season_id,
+                        anime.get('url', None),
+                        int(anime.get('approved', False)) if anime.get('approved') is not None else None,
+                        anime.get('title', None),
+                        anime.get('title_english', None),
+                        json.dumps(anime.get('aired', {})),
+                        anime.get('rating', None),
+                        anime.get('season', None),
+                        anime.get('year', None),
+                        json.dumps(anime.get('broadcast', {})),
+                        json.dumps(anime.get('studios', [])),
+                        json.dumps(anime.get('genres', [])),
+                        json.dumps(anime.get('explicit_genres', [])),
+                        json.dumps(anime.get('themes', [])),
+                        json.dumps(anime.get('demographics', [])),
+                        anime.get('score', None),
+                        anime.get('scored_by', None)
+                    ))
+                
+                # Bulk insert anime for this season (ignores duplicates)
+                cursor.executemany('''
+                    INSERT OR IGNORE INTO anime (
+                        mal_id, season_id, url, approved, title, title_english, aired_json,
+                        rating, season, year, broadcast_json, studios_json, genres_json,
+                        explicit_genres_json, themes_json, demographics_json, score, scored_by
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', anime_tuples)
+        
+        conn.commit()
+    except (sqlite3.Error, ValueError) as e:
+        if conn:
+            conn.rollback()
+        raise e  
+    finally:
+        if conn:
+            conn.close()
+
 def test_query():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -119,9 +178,14 @@ def test_query():
         print(result)
     # print(cursor.execute("select * from seasons order by RANDOM() limit 20").fetchall())
 
-def save_data_to_file(data, file_path:str = "data.txt"):
-    with open(file_path,'w', encoding='utf-8') as file:
-        json.dump(data,file,ensure_ascii=False, indent=4)
+def save_data_to_file(data, file_path: str = "data.txt", clear_file=False):
+    
+    if clear_file:
+        open(file_path, 'w').close()  
+    
+    # Then write the new data
+    with open(file_path, 'w', encoding='utf-8') as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
 
 def load_data_from_file(file_path:str = "jikan.txt"):
     if os.path.exists(file_path):
