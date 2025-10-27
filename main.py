@@ -29,6 +29,7 @@ async def main():
                 file_path = f"jikan/{year}"
                 db_handler.save_data_to_file(data, file_path)
 
+    # db_handler.test_query()
     db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
     db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
 
@@ -39,8 +40,12 @@ async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona'
 
 async def run_error_resolver():
     async with ErrorSolver(anime_type='tv',client_error_path=API_CLIENT_ERROR_PATH,main_error_path=MAIN_ERROR_PATH,error_log_path=ERROR_SOLVER_LOG_PATH) as solver:
+        db_handler.init_db()
         re_fetched_data = await solver.resolve_client_errors()
-        db_handler.insert_missing_anime_from_dict(re_fetched_data)
+        print(re_fetched_data)
+        db_error_list = db_handler.insert_from_dict(re_fetched_data)
+        # writing error to logs
+        solver.new_errors.extend(db_error_list)
         db_handler.save_data_to_file(solver.new_errors, ERROR_SOLVER_LOG_PATH, clear_file=True)
 
 class MainError(Exception):
@@ -59,13 +64,4 @@ class MainError(Exception):
         }
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-    # try:
-    #     if not db_handler.check_db_exist():
-    #         seasonal_dict = await mal_script.main()
-    #         db_handler.init_db()
-    #         db_handler.insert_from_dict(seasonal_dict)
-    #     db_handler.test_query()
-    # except Exception as e:
-    #     print(e)
+    asyncio.run(run_error_resolver())

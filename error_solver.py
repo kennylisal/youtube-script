@@ -27,14 +27,16 @@ class ErrorSolver():
             await self.session.close()
 
     def load_data_from_file(self, file_path:str, must_exist = True):
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        
-        if must_exist :
-            raise FileNotFoundError(f"Data file '{file_path}' not found.")
-        else:
-            return []
+        final_data = []
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    final_data = json.load(f)
+        except Exception as e:
+            if must_exist :
+                raise FileNotFoundError(f"Data file '{file_path}' not found.")
+        finally:
+            return final_data
         
     # fokus bikin ini saja dulu, soalnya main masih belum jelas bgmn
     async def solve_client_seasons_error(self):
@@ -50,7 +52,7 @@ class ErrorSolver():
         async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
             try:
                 api_data = await client.get_jikan_moe('',{},direct_url=direct_url)
-                return api_data
+                return api_data.get('data',[])
             except Exception as e:
                 if isinstance(e, APIClientError):
                     self.new_errors.append(e._get_json_format())
@@ -91,31 +93,55 @@ class ErrorSolver():
     
     async def resolve_paginate_error(self, error:dict[str,any]): # type: ignore
         try:
+
             url = error.get('url')
             year,season = self.get_year_season_from_url(url)
             data = await self.get_direct_api_data_from_url(url,self.anime_type)
-            self.results.setdefault(year, {}).setdefault(season, []).extend(data)
+            print(f"success taking data from {url}")
+            # Ensure year key exists
+            if year not in self.results:
+                self.results[year] = {}
+            
+            # Ensure season key exists
+            if season not in self.results[year]:
+                self.results[year][season] = {"data": data, "pagination_info": {}}
+            else:
+                self.results[year][season]['data'].extend(data)
+            
+            print(f"Bottom check")
         except Exception as e:
-            if not isinstance(e,APIClientError):
-                line_print(Back.RED, str(e))
-            raise e
+            # print(f"error on resolving paginate {error.get('url')}, cause : {e}")
+            self.new_errors.append({
+                "url" : error.get('url'),
+                "message" : f"error on resolving paginate {error.get('url')}",
+                "type" : "paginate",
+                "error" : e
+            })
+            # raise e
         
-    async def resolve_path_error(self, error:dict[str,any]) # type: ignore
+    async def resolve_path_error(self, error:dict[str,any]): # type: ignore
         try:
             path = error.get('path')
             year,season = self.get_year_season_from_path(path)
             pagination, data =  await self.get_path_data(path,self.anime_type)
             self.results.setdefault(year, {})[season] = {"data": data, "pagination_info": pagination}
         except Exception as e:
-            if not isinstance(e,APIClientError):
-                line_print(Back.RED, str(e))
-            raise e
+            # if not isinstance(e,APIClientError):
+            #     line_print(Back.RED, str(e))
+            self.new_errors.append({
+                "path" : error.get('url'),
+                "message" : f"error on resolving paginate {error.get('path')}",
+                "type" : "path",
+                "error" : e
+            })
+            # raise e
 
     # main function
     async def resolve_client_errors(self):
         tasks = []
         for error in self.client_errors:
-            if error.type == 'paginate' :
+            # print(error)
+            if error.get('type') == 'paginate' :
                 tasks.append(self.resolve_paginate_error(error))
             else:
                 tasks.append(self.resolve_path_error(error))
@@ -151,4 +177,3 @@ class ErrorSolver():
             year = int(parts[3])
             season = parts[4]
             return year,season
-

@@ -10,4 +10,4 @@ wheels/
 .venv
 jikan.txt
 jikan_error.txt
-.txt
+*.txt

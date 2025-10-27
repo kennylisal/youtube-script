@@ -44,8 +44,8 @@ class AsyncAPIClient:
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
-                    if random.randint(0,6) == 3:
-                        break
+                    # if random.randint(0,6) == 3:
+                    #     break
                     async with self.session.get(api_url) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -77,8 +77,8 @@ class AsyncAPIClient:
     # this is used to get all the paginated data
     async def get_path_entire_data(self, path : str, ):
         try:
-            if random.randint(0,4) == 1:
-                raise APIClientError(error=Exception("Artificial error by me"),type="path",path=path)
+            # if random.randint(0,4) == 1:
+            #     raise APIClientError(error=Exception("Artificial error by me"),type="path",path=path)
             first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
@@ -143,13 +143,6 @@ class AsyncAPIClient:
                 tasks.append(new_task)
         await asyncio.gather(*tasks, return_exceptions=True)
         return self.results
-
-    def print_error(self):
-        line_print(Back.RED, "Here are the errors during data gathering")
-        if len(self.errors) == 0:  # Or: if len(self.errors) == 0:
-            print(Fore.RED + "No Error Occurred")  # Fixed spelling too
-        else:
-            print(Fore.RED + f"{len(self.errors)} occured")
 
     def raise_error(self, error:Exception):
         error_msg = str(error)
