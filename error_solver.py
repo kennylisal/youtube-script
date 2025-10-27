@@ -97,7 +97,6 @@ class ErrorSolver():
             url = error.get('url')
             year,season = self.get_year_season_from_url(url)
             data = await self.get_direct_api_data_from_url(url,self.anime_type)
-            print(f"success taking data from {url}")
             # Ensure year key exists
             if year not in self.results:
                 self.results[year] = {}
@@ -108,7 +107,6 @@ class ErrorSolver():
             else:
                 self.results[year][season]['data'].extend(data)
             
-            print(f"Bottom check")
         except Exception as e:
             # print(f"error on resolving paginate {error.get('url')}, cause : {e}")
             self.new_errors.append({

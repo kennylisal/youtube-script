@@ -4,6 +4,9 @@ import json
 # bikin check jika db ada tidak
 # bikin insert many
 # bikin update
+from colorama import init, Fore, Back, Style
+
+from mal_script import line_print
 
 DB_PATH = "anime.db"
 
@@ -46,6 +49,86 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS themes (
+            mal_id INTEGER PRIMARY KEY,
+            name TEXT,
+            url TEXT,
+            count INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS genres (
+            mal_id INTEGER PRIMARY KEY,
+            name TEXT,
+            url TEXT,
+            count INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS demographics (
+            mal_id INTEGER PRIMARY KEY,
+            name TEXT,
+            url TEXT,
+            count INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS explicit_genres (
+            mal_id INTEGER PRIMARY KEY,
+            name TEXT,
+            url TEXT,
+            count INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_demographics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            demographic_id INTEGER,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id),
+            FOREIGN KEY(demographic_id) REFERENCES demographics(mal_id),
+            UNIQUE(anime_id,demographic_id)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_themes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            theme_id INTEGER,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id),
+            FOREIGN KEY(theme_id) REFERENCES themes(mal_id),
+            UNIQUE(anime_id,theme_id)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_genres (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            genre_id INTEGER,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id),
+            FOREIGN KEY(genre_id) REFERENCES genres(mal_id),
+            UNIQUE(anime_id,genre_id)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_explicit_genres (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            explicit_genre_id INTEGER,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id),
+            FOREIGN KEY(explicit_genre_id) REFERENCES explicit_genres(mal_id),
+            UNIQUE(anime_id,explicit_genre_id)
+        )
+    ''')
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_year_season ON seasons(year, season)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_anime_season ON anime(season_id)')
     
@@ -59,10 +142,8 @@ def insert_from_dict(results: dict):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
         for year_str, year_data in results.items():
             year = int(year_str)
-            print(f"mulai {year}")
             for season, season_data in year_data.items():
                 try:
                     season_and_anime_insertion(cursor,season,season_data,year)
@@ -71,7 +152,7 @@ def insert_from_dict(results: dict):
                         e = DBHandlerError(e,year,season)
                     print(e)
                     Errors.append(e._get_json_format())
-            print(f"year {year} selesai")
+            line_print(Back.BLUE,f"Storing {year} Anime Data")
         conn.commit()
     except sqlite3.Error as e:
         if conn:
@@ -130,6 +211,49 @@ def season_and_anime_insertion(cursor:sqlite3.Cursor,season :str,season_data,yea
         print(e)
         raise DBHandlerError(error=e,year=year,season=season)
 
+def genres_insert_bulk(cursor:sqlite3.Cursor,genre_data:list[dict], genre_choice:str):
+    try:
+        anime_tuples = []
+        for genre in genre_data:
+            anime_tuples.append((
+                genre.get('mal_id'),
+                genre.get('name'),
+                genre.get('url'),
+                genre.get('count')
+            ))
+        
+        # Bulk insert anime for this season
+        cursor.executemany(f'''
+            INSERT OR IGNORE INTO {genre_choice} (
+                mal_id, name,url,count
+            )
+            VALUES (?, ?, ?, ?)
+        ''', anime_tuples)
+    except Exception as e:
+        print(e)
+        raise e
+
+def insert_genre_from_dict(results: dict[str,list[dict]], genre_choice:str):
+    conn = None
+    Errors = []
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        dict_data = results.get('data',[])
+        genres_insert_bulk(cursor,dict_data, genre_choice)
+        conn.commit()
+    except sqlite3.Error as e:
+        if conn:
+            conn.rollback()
+        raise e  
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise e
+    finally:
+        if conn:
+            conn.close()
+        return Errors
 
 def test_query():
     conn = sqlite3.connect(DB_PATH)

@@ -3,35 +3,11 @@ import mal_script
 import db_handler
 from typing import Literal
 from error_solver import ErrorSolver
+from colorama import Back
 
 MAIN_ERROR_PATH = "MAIN_ERROR.txt"
 API_CLIENT_ERROR_PATH = "API_CLIENT_ERROR.txt"
 ERROR_SOLVER_LOG_PATH = "error_solver_log.txt"
-
-async def main():
-    MAX_YEAR = 2025 + 1
-    MIN_YEAR = 2020
-
-    ANIME_TYPE = 'tv'
-    main_errors = []
-    client_errors = []
-    db_handler.init_db()
-    for year in range(MIN_YEAR,MAX_YEAR):
-        data = None
-        try:
-            data,errors = await get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
-            db_handler.insert_from_dict(data)
-            client_errors.extend(errors)
-        except Exception as e:
-            # this is only to catch sqllite write error
-            main_errors.append(MainError(e, year)._get_json_format())
-            if data is not None:
-                file_path = f"jikan/{year}"
-                db_handler.save_data_to_file(data, file_path)
-
-    # db_handler.test_query()
-    db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
-    db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
 
 async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona','movie']):
     async with mal_script.AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
@@ -63,5 +39,41 @@ class MainError(Exception):
             "error" : str(self.error)
         }
 
+async def main():
+    MAX_YEAR = 2025 + 1
+    MIN_YEAR = 2015
+    ANIME_TYPE = 'tv'
+    
+    main_errors = []
+    client_errors = []
+    db_handler.init_db()
+    for year in range(MIN_YEAR,MAX_YEAR):
+        data = None
+        try:
+            data,errors = await get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
+            db_handler.insert_from_dict(data)
+            client_errors.extend(errors)
+        except Exception as e:
+            # this is only to catch sqllite write error
+            main_errors.append(MainError(e, year)._get_json_format())
+            if data is not None:
+                file_path = f"jikan/{year}"
+                db_handler.save_data_to_file(data, file_path)
+
+    # db_handler.test_query()
+    db_handler.save_data_to_file(main_errors,MAIN_ERROR_PATH)
+    db_handler.save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
+    mal_script.line_print(Back.BLUE, f"Done Gathering Data from {MIN_YEAR} to {MAX_YEAR}")
+
+async def initiate_and_gather_jikan_genres():
+    mal_script.line_print(Back.BLUE, "Initiating all MAL Genres Gathering")
+    db_handler.init_db()
+    genre_filters = ['genres','explicit_genres','themes','demographics']
+    for genre in genre_filters:
+        genre_dict = await mal_script.gather_jikan_genres_data(genre)
+        db_handler.insert_genre_from_dict(genre_dict,genre)
+    mal_script.line_print(Back.BLUE, "Done Gathering all MAL Genres")
+
 if __name__ == "__main__":
-    asyncio.run(run_error_resolver())
+    # asyncio.run(run_error_resolver())
+    asyncio.run(initiate_and_gather_jikan_genres())

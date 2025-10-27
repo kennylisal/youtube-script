@@ -1,7 +1,6 @@
 import aiohttp
 from urllib.parse import urlunparse, urlencode
 import asyncio
-import random
 from typing import Literal
 from colorama import init, Fore, Back, Style
 init(autoreset=True)
@@ -35,6 +34,8 @@ class AsyncAPIClient:
         new_url = urlunparse((scheme, netloc, path, '', new_query, ''))
         return new_url
     
+    
+     
     async def get_jikan_moe(self, path: str, params: dict = {}, max_attemps = 4, direct_url = None):
         api_url = self.generate_url(path, params)
         if direct_url is not None:
@@ -44,8 +45,6 @@ class AsyncAPIClient:
         async with self.semaphore:
             for attempt in range(max_attemps+1):
                 try:
-                    # if random.randint(0,6) == 3:
-                    #     break
                     async with self.session.get(api_url) as res:
                         if res.status == 200:
                             data = await res.json()
@@ -77,8 +76,6 @@ class AsyncAPIClient:
     # this is used to get all the paginated data
     async def get_path_entire_data(self, path : str, ):
         try:
-            # if random.randint(0,4) == 1:
-            #     raise APIClientError(error=Exception("Artificial error by me"),type="path",path=path)
             first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
@@ -193,6 +190,37 @@ async def main():
     #         save_data_to_file(seasonal_data,jikan_data_path)
     #         save_data_to_file(client.errors, "API_CLIENT_ERROR.txt")
     #     return seasonal_data
+
+async def gather_jikan_genres_data(genre_filter:str):
+    api_url = f"https://api.jikan.moe/v4/genres/anime?filter={genre_filter}"
+    max_attemps = 4
+    session = aiohttp.ClientSession()
+    for attempt in range(max_attemps+1):
+        try:
+            
+            async with session.get(api_url) as res:
+                if res.status == 200:
+                    data = await res.json()
+                    line_print(Back.GREEN,f"Success fetch data from {api_url}")
+                    return data
+                else:
+                    line_print(Back.YELLOW, f"Bad status {res.status} for {api_url}, attempt {attempt + 1}/{max_attemps + 1}")
+                    if attempt == max_attemps:
+                        raise aiohttp.ClientResponseError(
+                            res.request_info, res.history, status=res.status,
+                            message=f"Failed after {max_attemps + 1} attempts"
+                        )
+                    
+        except aiohttp.ClientResponseError as e:
+            # last_aiohttp_caught_error = e
+            line_print(Back.RED, f"API Error at '{api_url}' attemp {attempt+1}/{max_attemps + 1}")
+        except Exception as e:
+            line_print(Back.RED, f"API Error at '{api_url}' attemp {attempt + 1}/{max_attemps + 1}")
+        await asyncio.sleep(3)
+
+    await session.close()
+    msg = f"Exhausted {max_attemps + 1} attempts for {genre_filter} gathering"
+    raise APIClientError(url=api_url,error=RuntimeError(msg), type='path')   
 
 if __name__ == "__main__":
     asyncio.run(main())
