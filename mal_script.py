@@ -3,6 +3,7 @@ from urllib.parse import urlunparse, urlencode
 import asyncio
 from typing import Literal
 from colorama import init, Fore, Back, Style
+
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
