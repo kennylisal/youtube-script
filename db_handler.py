@@ -2,15 +2,17 @@ from typing import Literal
 import aiosqlite
 import os
 import json
+# import asyncio
 # bikin check jika db ada tidak
 # bikin insert many
 # bikin update
 from colorama import init, Fore, Back, Style
 
-from mal_script import line_print
 
 import data_processor
-
+init(autoreset=True)
+def line_print(bg_color, text, end='\n\n'):
+    print(bg_color + Style.BRIGHT + text, end=end)
 DB_PATH = "anime.db"
 
 class DBHandler:  # Assuming a class context
@@ -52,6 +54,7 @@ async def init_db(conn:aiosqlite.Connection):
             approved INTEGER,
             title TEXT,
             title_english TEXT,
+            title_japanese TEXT,
             aired_json TEXT,
             rating TEXT,
             season TEXT,
@@ -149,14 +152,60 @@ async def init_db(conn:aiosqlite.Connection):
         )
     ''')
 
+    await cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_broadcast (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            day TEXT,
+            time TEXT,
+            timezone TEXT,
+            string_text TEXT,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id)
+        )
+    ''')
+
+    await cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_studios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            studio_id INTEGER,
+            type TEXT,
+            name TEXT,
+            url TEXT,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id)
+        )
+    ''')
+
+    await cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_producers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            producer_id INTEGER,
+            type TEXT,
+            name TEXT,
+            url TEXT,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id)
+        )
+    ''')
+
+    await cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_aired_schedule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            aired_from DATETIME,
+            aired_to DATETIME,
+            string_text TEXT,
+            FOREIGN KEY(anime_id) REFERENCES anime(mal_id)
+        )
+    ''')
+    
     await cursor.execute('CREATE INDEX IF NOT EXISTS idx_year_season ON seasons(year, season)')
     await cursor.execute('CREATE INDEX IF NOT EXISTS idx_anime_season ON anime(season_id)')
 
     await conn.commit()
-        
 
 
-async def insert_from_dict(conn:aiosqlite.Connection,results: dict):
+async def insert_from_dict(conn:aiosqlite.Connection,results: dict, year_x:int):
     Errors = []
     try:
         cursor = await conn.cursor()
@@ -165,26 +214,29 @@ async def insert_from_dict(conn:aiosqlite.Connection,results: dict):
             for season, season_data in year_data.items():
                 try:
                     season_id = await set_anime_season(cursor,season,year)
-                    anime_tuples, anime_explicit_relation, anime_themes_relation, anime_genres_relation, anime_demographics_relation = data_processor.prepare_list_of_tuples(season_data,season_id)
+                    anime_tuples, anime_explicit_relation, anime_themes_relation, anime_genres_relation, anime_demographics_relation,anime_broadcast,anime_studios,anime_producers,anime_air_data = data_processor.prepare_list_of_tuples(season_data,season_id)
                     await anime_bulk_insertion(cursor, anime_tuples)
                     await anime_genres_relation_bulk_insertion(cursor,anime_explicit_relation,'anime_explicit_genres')
                     await anime_genres_relation_bulk_insertion(cursor,anime_themes_relation,'anime_themes')
                     await anime_genres_relation_bulk_insertion(cursor, anime_genres_relation,'anime_genres')
                     await anime_genres_relation_bulk_insertion(cursor, anime_demographics_relation, 'anime_demographics')
+                    await anime_broadcast_insert_bulk(cursor, anime_broadcast)
+                    await anime_studio_insert_bulk(cursor, anime_studios)
+                    await anime_producer_insert_bulk(cursor, anime_producers)
+                    await anime_aired_insert_bulk(cursor,anime_air_data)
                 except Exception as e:
                     if not isinstance(e,DBHandlerError):
                         e = DBHandlerError(e, season_data)
                     print(e)
                     Errors.append(e._get_json_format())
-            line_print(Back.BLUE,f"Storing {year} Anime Data")
+            line_print(Back.BLUE,f"Success Storing {year} Anime Data")
         await conn.commit()
-    except aiosqlite.Error as e:
+    except Exception as e:
+        line_print(Back.RED,f"Failed Storing {year_x} Anime Data, cause : {e}")
         if conn:
             await conn.rollback()
         raise e  
     finally:
-        if conn:
-            await conn.close()
         return Errors
 
 
@@ -205,11 +257,11 @@ async def anime_bulk_insertion(cursor:aiosqlite.Cursor, anime_tuples):
     try:
         await cursor.executemany('''
             INSERT OR IGNORE INTO anime (
-                mal_id, season_id, url, approved, title, title_english, aired_json,
+                mal_id, season_id, url, approved, title, title_english, title_japanese, aired_json,
                 rating, season, year, broadcast_json, studios_json, genres_json,
                 explicit_genres_json, themes_json, demographics_json, score, scored_by,source
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
         ''', anime_tuples)
     except Exception as e:
         print(e)
@@ -260,6 +312,62 @@ async def genres_insert_bulk(cursor:aiosqlite.Cursor,genre_data:list[dict], genr
         print(e)
         raise e
 
+async def anime_broadcast_insert_bulk(cursor:aiosqlite.Cursor,data:list):
+    try:
+        # Bulk insert anime for this season
+        await cursor.executemany(f'''
+            INSERT OR IGNORE INTO anime_broadcast (
+                anime_id,day,time,timezone,string_text
+            )
+            VALUES (?, ?, ?, ?,?)
+        ''', data)
+    except Exception as e:
+        print(e)
+        print("gagal insert anime broadcast")
+        raise e
+
+async def anime_studio_insert_bulk(cursor:aiosqlite.Cursor,data:list):
+    try:
+        # Bulk insert anime for this season
+        await cursor.executemany(f'''
+            INSERT OR IGNORE INTO anime_studios (
+                anime_id,studio_id,type,name,url
+            )
+            VALUES (?, ?, ?, ?,?)
+        ''', data)
+    except Exception as e:
+        print(e)
+        print("gagal insert anime studio")
+        raise e
+
+async def anime_producer_insert_bulk(cursor:aiosqlite.Cursor,data:list):
+    try:
+        # Bulk insert anime for this season
+        await cursor.executemany(f'''
+            INSERT OR IGNORE INTO anime_producers (
+                anime_id,producer_id,type,name,url
+            )
+            VALUES (?, ?, ?, ?, ?)
+        ''', data)
+    except Exception as e:
+        print(e)
+        print("gagal insert anime producer")
+        raise e
+
+async def anime_aired_insert_bulk(cursor:aiosqlite.Cursor,data:list):
+    try:
+        # Bulk insert anime for this season
+        await cursor.executemany(f'''
+            INSERT OR IGNORE INTO anime_aired_schedule (
+                anime_id, aired_from, aired_to, string_text
+            )
+            VALUES (?, ?, ?, ?)
+        ''', data)
+    except Exception as e:
+        print(e)
+        print("gagal insert anime aired")
+        raise e
+
 async def insert_genre_from_dict(conn : aiosqlite.Connection,results: dict[str,list[dict]], genre_choice:str):
     Errors = []
     try:
@@ -276,8 +384,6 @@ async def insert_genre_from_dict(conn : aiosqlite.Connection,results: dict[str,l
             await conn.rollback()
         raise e
     finally:
-        if conn:
-            await conn.close()
         return Errors
 
 async def test_query():

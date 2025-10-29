@@ -9,6 +9,11 @@ def prepare_list_of_tuples(season_data : dict, season_id):
     anime_themes_relation = []
     anime_genres_relation = []
     anime_demographics_relation = []
+    anime_broadcast = []
+    anime_studios = []
+    anime_producers = []
+    anime_air_data = []
+    
 
     for anime in anime_list:
         anime_tuple.append(extract_anime_data(anime,season_id))
@@ -16,8 +21,12 @@ def prepare_list_of_tuples(season_data : dict, season_id):
         anime_themes_relation.extend(extract_anime_genres(anime,'themes'))
         anime_genres_relation.extend(extract_anime_genres(anime,'genres'))
         anime_demographics_relation.extend(extract_anime_genres(anime,"demographics"))
+        anime_broadcast.append(extract_anime_broadcast(anime))
+        anime_studios.extend(extract_anime_studio(anime))
+        anime_producers.extend(extract_anime_producers(anime))
+        anime_air_data.append(extract_anime_air(anime))
     
-    return anime_tuple, anime_explicit_relation, anime_themes_relation, anime_genres_relation, anime_demographics_relation
+    return anime_tuple, anime_explicit_relation, anime_themes_relation, anime_genres_relation, anime_demographics_relation, anime_broadcast,anime_studios,anime_producers,anime_air_data
 
 def extract_anime_data( anime:dict, season_id):
     data = (
@@ -27,6 +36,7 @@ def extract_anime_data( anime:dict, season_id):
         int(anime.get('approved', False)) if anime.get('approved') is not None else None,
         anime.get('title', None),
         anime.get('title_english', None),
+        anime.get('title_japanese', None),
         json.dumps(anime.get('aired', {})),
         anime.get('rating', None),
         anime.get('season', None),
@@ -43,7 +53,7 @@ def extract_anime_data( anime:dict, season_id):
     )
     return data
 
-def extract_anime_genres( anime:dict, genre_type : Literal['genres','demographics','themes','explicit_genres']):
+def extract_anime_genres( anime:dict, genre_type : Literal['genres','demographics','themes','explicit_genres'])->list:
     anime_id = anime.get('mal_id', None)
     genre_list : list[dict] = anime[genre_type]
     relation_list = []
@@ -53,33 +63,70 @@ def extract_anime_genres( anime:dict, genre_type : Literal['genres','demographic
         ))
     return relation_list
 
+def extract_anime_broadcast(anime:dict) -> tuple:
+    try:
+        anime_id = anime.get('mal_id', None)
+        broadcast_data = anime.get("broadcast", {})
+        data = (
+            anime_id,
+            broadcast_data.get("day",None),
+            broadcast_data.get("time",None),
+            broadcast_data.get("timezone",None),
+            broadcast_data.get("string",None),
+        )
+        return data
+    except Exception as e:
+        print(e)
+        raise e
 
-# class DataProcessor:
-#     def __init__(self, max_concurrency = 5):
-#         now = datetime.now()
-#         unix_timestamp_dt = now.timestamp()
-#         # 
-#         self.time_stamp = unix_timestamp_dt
-#         self.error_logs = {}
-#         self.semaphore = asyncio.Semaphore(max_concurrency)
-    
-#     # bikin banyak taska
-#     # pecahkan jadi
-#     # data anime yang mau di-insert
-#     # data genre yang mau di insert
-#     #   ingat ini data genre 4 jenis
-#     #   bikin modular
-#     # bikin error-nya terpecah berdasarkan operasi yang mau dibikin
+def extract_anime_studio(anime:dict) -> list:
+    try:
+        anime_id = anime.get('mal_id', None)
+        studios : list[dict]=  anime['studios']
+        anime_studios = []
+        for studio in studios:
+            anime_studios.append((
+                anime_id,
+                studio.get('mal_id',None),
+                studio.get('type',None),
+                studio.get('name',None),
+                studio.get('url',None),
+            ))
+        return anime_studios
+    except Exception as e:
+        print(e)
+        raise e
 
-# class DataProcessorError(Exception):
-#     def __init__(self, error:Exception, anime_data, error_type:Literal['anime','genre','sql']):
-#         self.error = error
-#         self.anime_data = anime_data
-#         self.error_type = error_type
+def extract_anime_producers(anime:dict) -> list:
+    try:
+        anime_id = anime.get('mal_id', None)
+        producers : list[dict]=  anime['producers']
+        anime_producers = []
+        for producer in producers:
+            anime_producers.append((
+                anime_id,
+                producer.get('mal_id',None),
+                producer.get('type',None),
+                producer.get('name',None),
+                producer.get('url',None),
+            ))
+        return anime_producers
+    except Exception as e:
+        print(e)
+        raise e
 
-#     def _get_json_format(self):
-#         return {
-#             "error" : self.error,
-#             "anime_data" : self.anime_data,
-#             "error_type" : self.error_type
-#         }
+def extract_anime_air(anime:dict) ->tuple:
+    try:
+        anime_id = anime.get('mal_id', None)
+        airing_data = anime.get("aired",{})
+        data = (
+            anime_id,
+            airing_data.get('from',None),
+            airing_data.get('to',None),
+            airing_data.get('string',None),
+        )
+        return data
+    except Exception as e:
+        print(e)
+        raise e
+
