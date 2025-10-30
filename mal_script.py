@@ -3,6 +3,8 @@ from urllib.parse import urlunparse, urlencode
 import asyncio
 from typing import Literal
 from colorama import init, Fore, Back, Style
+import os
+import db_handler
 init(autoreset=True)
 def line_print(bg_color, text, end='\n\n'):
     print(bg_color + Style.BRIGHT + text, end=end)
@@ -68,7 +70,7 @@ class AsyncAPIClient:
         msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
         self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate',aiohttp_error=last_aiohttp_caught_error))
 
-    def filter_wanted_attributes(self,anime_list : list[dict],filter_keys:list[str] = ["mal_id","url","approved","title","title_english","aired","rating","season","year","broadcast","studios","genres","explicit_genres","themes","demographics","score","scored_by"]):
+    def filter_wanted_attributes(self,anime_list : list[dict],filter_keys:list[str] = ["mal_id","url","approved","title","title_english","title_japanese","aired","rating","season","year","broadcast","studios","genres","explicit_genres","themes","demographics","score","scored_by",'source','producers']):
         anime_data = [{k: anime.get(k) for k in filter_keys if k in anime} for anime in anime_list ]
         return anime_data
 
@@ -98,8 +100,8 @@ class AsyncAPIClient:
                         anime_data :list= result.get('data') # type: ignore
                         final_result.extend(anime_data)
             print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
-            processed_data = self.filter_wanted_attributes(final_result)
-            return pagination,processed_data
+            # processed_data = self.filter_wanted_attributes(final_result)
+            return pagination, final_result
         except Exception as e:
             if isinstance(e,APIClientError):
                 self.raise_error(error=e)
@@ -176,20 +178,23 @@ class APIClientError(Exception):
 
 async def main():
     print("main from mal_script.py")
-    # jikan_data_path = "jikan.txt"
-    # async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type="tv") as client:
-    #     if os.path.exists(jikan_data_path):
-    #         print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
-    #         # 
-    #         seasonal_data = load_data_from_file(jikan_data_path)
-    #     else:
-    #         print(Fore.YELLOW + "Gathering data from Jikan.moe")
-    #         # 
-    #         seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
-    #         client.print_error()
-    #         save_data_to_file(seasonal_data,jikan_data_path)
-    #         save_data_to_file(client.errors, "API_CLIENT_ERROR.txt")
-    #     return seasonal_data
+
+
+async def get_data_from_txt():
+    jikan_data_path = "jikan.txt"
+    async with AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type="tv") as client:
+        if os.path.exists(jikan_data_path):
+            print(Fore.YELLOW + f"Loading data from {jikan_data_path}")
+            # 
+            seasonal_data = db_handler.load_data_from_file(jikan_data_path)
+        else:
+            print(Fore.YELLOW + "Gathering data from Jikan.moe")
+            # 
+            seasonal_data = await client.get_years_of_seasonal_data_v2(2023,2025)
+            # client.print_error()
+            db_handler.save_data_to_file(seasonal_data,jikan_data_path)
+            db_handler.save_data_to_file(client.errors, "API_CLIENT_ERROR.txt")
+        return seasonal_data
 
 async def gather_jikan_genres_data(genre_filter:str):
     api_url = f"https://api.jikan.moe/v4/genres/anime?filter={genre_filter}"
@@ -202,6 +207,7 @@ async def gather_jikan_genres_data(genre_filter:str):
                 if res.status == 200:
                     data = await res.json()
                     line_print(Back.GREEN,f"Success fetch data from {api_url}")
+                    await session.close()
                     return data
                 else:
                     line_print(Back.YELLOW, f"Bad status {res.status} for {api_url}, attempt {attempt + 1}/{max_attemps + 1}")
@@ -216,11 +222,10 @@ async def gather_jikan_genres_data(genre_filter:str):
             line_print(Back.RED, f"API Error at '{api_url}' attemp {attempt+1}/{max_attemps + 1}")
         except Exception as e:
             line_print(Back.RED, f"API Error at '{api_url}' attemp {attempt + 1}/{max_attemps + 1}")
-        await asyncio.sleep(3)
 
-    await session.close()
+    
     msg = f"Exhausted {max_attemps + 1} attempts for {genre_filter} gathering"
     raise APIClientError(url=api_url,error=RuntimeError(msg), type='path')   
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(get_data_from_txt())
