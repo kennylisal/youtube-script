@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS anime (
     score REAL,
     scored_by INTEGER,
     source TEXT,
+    members INTEGER,
+    favorites INTEGER,
     FOREIGN KEY(season_id) REFERENCES seasons(id)
 );
 
@@ -239,3 +241,295 @@ JOIN themes t ON ath.theme_id = t.mal_id
 WHERE t.name = 'Isekai'
 ORDER BY aired_from ASC
 LIMIT 10;
+
+--average isekai
+SELECT AVG(a.score) AS average_isekai_score
+FROM anime a
+JOIN anime_themes ath ON a.mal_id = ath.anime_id
+JOIN themes t ON ath.theme_id = t.mal_id
+WHERE t.name = 'Isekai';
+
+--above average isekai, based on isekai average
+SELECT a.title, a.score
+FROM anime a
+JOIN anime_themes ath ON a.mal_id = ath.anime_id
+JOIN themes t ON ath.theme_id = t.mal_id
+WHERE t.name = 'Isekai'
+AND a.score > (
+    SELECT AVG(a2.score)
+    FROM anime a2
+    JOIN anime_themes ath2 ON a2.mal_id = ath2.anime_id
+    JOIN themes t2 ON ath2.theme_id = t2.mal_id
+    WHERE t2.name = 'Isekai'
+)
+ORDER BY a.score DESC
+LIMIT 20;
+
+--overall average anime score
+SELECT AVG(a.score) AS overall_average_score
+FROM anime a;
+--above average isekai, based on overall anime 
+SELECT a.title, a.score
+FROM anime a
+JOIN anime_themes ath ON a.mal_id = ath.anime_id
+JOIN themes t ON ath.theme_id = t.mal_id
+WHERE t.name = 'Isekai'
+AND a.score > (
+    SELECT AVG(a2.score)
+    FROM anime a2
+)
+ORDER BY a.score DESC
+LIMIT 20;
+
+--top isekai 
+SELECT a.title, a.score
+FROM anime a
+JOIN anime_themes ath ON a.mal_id = ath.anime_id
+JOIN themes t ON ath.theme_id = t.mal_id
+WHERE t.name = 'Isekai'
+ORDER BY a.score DESC
+LIMIT 20;
+
+--top studio that made isekai
+SELECT 
+    anime_studios.name AS studio_name, 
+    COUNT(DISTINCT anime_studios.anime_id) AS isekai_count
+FROM 
+    anime_studios
+JOIN 
+    anime ON anime_studios.anime_id = anime.mal_id
+JOIN 
+    anime_themes ON anime.mal_id = anime_themes.anime_id
+JOIN 
+    themes ON anime_themes.theme_id = themes.mal_id
+WHERE 
+    themes.name = 'Isekai'
+GROUP BY 
+    anime_studios.studio_id, anime_studios.name
+ORDER BY 
+    isekai_count DESC;
+
+--anime that made by studio X
+SELECT DISTINCT a.title, a.title_english, a.year, a.score
+FROM anime a
+JOIN anime_studios ast ON a.mal_id = ast.anime_id
+JOIN anime_themes ath ON a.mal_id = ath.anime_id
+JOIN themes t ON ath.theme_id = t.mal_id
+WHERE ast.name = 'J.C.Staff'
+AND t.name = 'Isekai'
+ORDER BY a.year DESC, a.score DESC;
+
+--each year anime placement based on member
+WITH ranked_anime AS (
+  SELECT 
+    a.mal_id,
+    a.title,
+    a.title_english,
+    a.year,
+    a.members,
+    strftime('%Y', s.aired_from) AS schedule_year,
+    ROW_NUMBER() OVER (
+      PARTITION BY strftime('%Y', s.aired_from) 
+      ORDER BY a.members DESC
+    ) AS rn
+  FROM anime a
+  JOIN anime_aired_schedule s ON a.mal_id = s.anime_id
+  WHERE s.aired_from IS NOT NULL
+)
+SELECT 
+  mal_id,
+  title,
+  title_english,
+  year,
+  members,
+  schedule_year
+FROM ranked_anime
+WHERE rn = 1
+ORDER BY schedule_year;
+
+--each year anime placement based on score
+WITH ranked_anime AS (
+  SELECT 
+    a.mal_id,
+    a.title,
+    a.title_english,
+    a.year,
+    a.score,
+    strftime('%Y', s.aired_from) AS schedule_year,
+    ROW_NUMBER() OVER (
+      PARTITION BY strftime('%Y', s.aired_from) 
+      ORDER BY a.score DESC
+    ) AS rn
+  FROM anime a
+  JOIN anime_aired_schedule s ON a.mal_id = s.anime_id
+  WHERE s.aired_from IS NOT NULL
+)
+SELECT 
+  mal_id,
+  title,
+  title_english,
+  year,
+  score,
+  schedule_year
+FROM ranked_anime
+WHERE rn = 1
+ORDER BY schedule_year;
+
+--source terbanyak isekai
+SELECT 
+    anime.source AS source_name, 
+    COUNT(DISTINCT anime.mal_id) AS isekai_count
+FROM 
+    anime
+JOIN 
+    anime_themes ON anime.mal_id = anime_themes.anime_id
+JOIN 
+    themes ON anime_themes.theme_id = themes.mal_id
+WHERE 
+    themes.name = 'Isekai'
+    AND anime.source IS NOT NULL  -- Optional: Exclude NULL sources if any
+GROUP BY 
+    anime.source
+ORDER BY 
+    isekai_count DESC;
+
+-- top genre each year
+WITH yearly_genre_counts AS (
+  SELECT 
+    strftime('%Y', aired_from) AS year,
+    themes.name AS genre_name,
+    COUNT(DISTINCT anime.mal_id) AS anime_count,
+    ROW_NUMBER() OVER (
+      PARTITION BY strftime('%Y', aired_from) 
+      ORDER BY COUNT(DISTINCT anime.mal_id) DESC
+    ) AS rank
+  FROM anime_aired_schedule
+  JOIN anime ON anime_aired_schedule.anime_id = anime.mal_id
+  JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+  JOIN themes ON anime_themes.theme_id = themes.mal_id
+  WHERE aired_from IS NOT NULL
+  GROUP BY year, genre_name
+)
+SELECT 
+  year,
+  genre_name,
+  anime_count
+FROM yearly_genre_counts
+WHERE rank <= 5
+ORDER BY year ASC, anime_count DESC;
+
+SELECT 
+  strftime('%Y', aired_from) AS year,
+  COUNT(DISTINCT anime_id) AS anime_count
+FROM anime_aired_schedule
+WHERE aired_from IS NOT NULL
+GROUP BY year
+ORDER BY year ASC;
+
+
+--average isekai per year
+WITH isekai_anime AS (
+  SELECT 
+    anime.mal_id,
+    anime.score,
+    strftime('%Y', anime_aired_schedule.aired_from) AS year
+  FROM anime
+  JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+  JOIN themes ON anime_themes.theme_id = themes.mal_id
+  JOIN anime_aired_schedule ON anime.mal_id = anime_aired_schedule.anime_id
+  WHERE themes.name = 'Isekai'
+    AND anime.score IS NOT NULL
+    AND anime_aired_schedule.aired_from IS NOT NULL
+)
+SELECT 
+  year,
+  ROUND(AVG(score), 2) AS avg_score,
+  COUNT(mal_id) AS anime_count
+FROM isekai_anime
+GROUP BY year
+ORDER BY year ASC;
+
+WITH isekai_ranked AS (
+  SELECT 
+    anime.mal_id,
+    anime.title,
+    anime.score,
+    strftime('%Y', anime_aired_schedule.aired_from) AS year,
+    ROW_NUMBER() OVER (
+      PARTITION BY strftime('%Y', anime_aired_schedule.aired_from)
+      ORDER BY anime.score DESC
+    ) AS rank
+  FROM anime
+  JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+  JOIN themes ON anime_themes.theme_id = themes.mal_id
+  JOIN anime_aired_schedule ON anime.mal_id = anime_aired_schedule.anime_id
+  WHERE themes.name = 'Isekai'
+    AND anime.score IS NOT NULL
+    AND anime_aired_schedule.aired_from IS NOT NULL
+)
+SELECT 
+  year,
+  title,
+  score
+FROM isekai_ranked
+WHERE rank = 1
+ORDER BY year ASC;
+
+--isekai aired on year X
+SELECT 
+  anime.mal_id,
+  anime.title,
+  anime.title_english,
+  anime.score,
+  anime_aired_schedule.aired_from,
+  anime_aired_schedule.aired_to
+FROM anime
+JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+JOIN themes ON anime_themes.theme_id = themes.mal_id
+JOIN anime_aired_schedule ON anime.mal_id = anime_aired_schedule.anime_id
+WHERE themes.name = 'Isekai'
+  AND strftime('%Y', anime_aired_schedule.aired_from) = '2025'
+  AND anime_aired_schedule.aired_from IS NOT NULL
+ORDER BY anime.score DESC NULLS LAST, anime_aired_schedule.aired_from ASC;
+
+--golden era
+--how many genre came out each year
+WITH theme_anime_counts AS (
+  SELECT 
+    strftime('%Y', anime_aired_schedule.aired_from) AS year,
+    themes.name AS theme_name,
+    COUNT(DISTINCT anime.mal_id) AS anime_count
+  FROM anime_aired_schedule
+  JOIN anime ON anime_aired_schedule.anime_id = anime.mal_id
+  JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+  JOIN themes ON anime_themes.theme_id = themes.mal_id
+  WHERE anime_aired_schedule.aired_from IS NOT NULL
+    AND themes.name = 'Isekai' 
+  GROUP BY year, theme_name
+)
+SELECT 
+  year,
+  theme_name,
+  anime_count
+FROM theme_anime_counts
+ORDER BY year ASC, anime_count DESC;
+
+WITH explicit_genre_anime_counts AS (
+  SELECT 
+    strftime('%Y', anime_aired_schedule.aired_from) AS year,
+    themes.name AS theme_name,
+    COUNT(DISTINCT anime.mal_id) AS anime_count
+  FROM anime_aired_schedule
+  JOIN anime ON anime_aired_schedule.anime_id = anime.mal_id
+  JOIN anime_themes ON anime.mal_id = anime_themes.anime_id
+  JOIN themes ON anime_themes.theme_id = themes.mal_id
+  WHERE anime_aired_schedule.aired_from IS NOT NULL
+    AND themes.name = 'Isekai' 
+  GROUP BY year, theme_name
+)
+SELECT 
+  year,
+  theme_name,
+  anime_count
+FROM explicit_genre_anime_counts
+ORDER BY year ASC, anime_count DESC;

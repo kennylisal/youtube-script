@@ -49,7 +49,9 @@ def extract_anime_data( anime:dict, season_id):
         json.dumps(anime.get('demographics', [])),
         anime.get('score', None),
         anime.get('scored_by', None),
-        anime.get('source', None)
+        anime.get('source', None),
+        anime.get('members', None),
+        anime.get('favorites', None)
     )
     return data
 

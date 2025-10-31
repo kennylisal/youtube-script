@@ -68,6 +68,8 @@ async def init_db(conn:aiosqlite.Connection):
             score REAL,
             scored_by INTEGER,
             source TEXT,
+            members INTEGER,
+            favorites INTEGER,
             FOREIGN KEY(season_id) REFERENCES seasons(id)
         )
     ''')
@@ -259,9 +261,9 @@ async def anime_bulk_insertion(cursor:aiosqlite.Cursor, anime_tuples):
             INSERT OR IGNORE INTO anime (
                 mal_id, season_id, url, approved, title, title_english, title_japanese, aired_json,
                 rating, season, year, broadcast_json, studios_json, genres_json,
-                explicit_genres_json, themes_json, demographics_json, score, scored_by,source
+                explicit_genres_json, themes_json, demographics_json, score, scored_by,source, members, favorites
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
         ''', anime_tuples)
     except Exception as e:
         print(e)
@@ -410,6 +412,8 @@ def load_data_from_file(file_path:str = "jikan.txt"):
     if os.path.exists(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
+    else:
+        raise Exception("No such path")
         
 class DBHandlerError(Exception):
     def __init__(self, error: Exception, data):

@@ -76,7 +76,7 @@ class AsyncAPIClient:
 
     # this is for get all the data from a path
     # this is used to get all the paginated data
-    async def get_path_entire_data(self, path : str, ):
+    async def get_path_entire_data(self, path : str ):
         try:
             first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
             pagination = first_data.get('pagination') # type: ignore
@@ -110,6 +110,37 @@ class AsyncAPIClient:
                 self.raise_error(e)
                 # self.raise_error(error=APIClientError(url=self.generate_url(path),error=e,type='path'))
 
+    async def get_entire_path_top_anime(self, added_params = {}, max_page = 30 ):
+        try:
+            first_data = await self.get_jikan_moe('/top/anime', params={'page' : 1,**added_params})
+            pagination = first_data.get('pagination') # type: ignore
+            if pagination is None:
+                raise Exception({"error" : "top data is corrupt, no pagination data"})
+            page_count = pagination.get('last_visible_page', 1)
+            # 
+            final_result = []
+            anime_data :list= first_data.get('data') # type: ignore
+            final_result.extend(anime_data)
+            # 
+            tasks = []
+            for i in range(1,max_page):
+                current_index = i + 1
+                tasks.append(self.get_jikan_moe('/top/anime',params={'page':current_index,**added_params}))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 
+            for result in results:
+                if not isinstance(result,Exception) and result is not None:
+                    anime_data :list= result.get('data') # type: ignore
+                    final_result.extend(anime_data)
+            print(Fore.GREEN + f"top anime with params {added_params} -> {len(final_result)} datas")
+            # processed_data = self.filter_wanted_attributes(final_result)
+            return pagination, final_result
+        except Exception as e:
+            if isinstance(e,APIClientError):
+                self.raise_error(error=e)
+            else:
+                e = APIClientError(path="/top/anime",error=e,type='path')
+                self.raise_error(e)
     
     async def add_data_to_final_result(self, season_year:int, season:str):
         year = str(season_year)
@@ -227,5 +258,10 @@ async def gather_jikan_genres_data(genre_filter:str):
     msg = f"Exhausted {max_attemps + 1} attempts for {genre_filter} gathering"
     raise APIClientError(url=api_url,error=RuntimeError(msg), type='path')   
 
+async def gather_top_anime():
+    async with AsyncAPIClient("api.jikan.moe/v4",'tv') as client:
+       _, data =  await client.get_entire_path_top_anime(added_params={})
+       db_handler.save_data_to_file(data,"top_750_score.txt")
+
 if __name__ == "__main__":
-    asyncio.run(get_data_from_txt())
+    asyncio.run(main())

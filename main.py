@@ -45,9 +45,9 @@ class MainError(Exception):
 async def gather_seasonal_data(db_connection):
     
     MAX_YEAR = 2025 + 1
-    MIN_YEAR = 2023
+    MIN_YEAR = 2015
     ANIME_TYPE = 'tv'
-    mal_script.line_print(Back.BLUE, f"Starting to Gather Data from {MIN_YEAR} to {MAX_YEAR}")
+    mal_script.line_print(Back.BLUE, f"Starting to Gather Data from {MIN_YEAR} to {MAX_YEAR - 1}")
     main_errors = []
     client_errors = []
     # db_handler =  DBHandler()
@@ -99,4 +99,4 @@ async def main():
     await db_handler.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run( mal_script.gather_top_anime())
