@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 import json
-
+from typing import Literal
 def prepare_list_of_tuples(season_data : dict, season_id):
     anime_list : list[dict] = season_data['data']
     anime_tuple = []
@@ -51,7 +51,8 @@ def extract_anime_data( anime:dict, season_id):
         anime.get('scored_by', None),
         anime.get('source', None),
         anime.get('members', None),
-        anime.get('favorites', None)
+        anime.get('favorites', None),
+        anime.get('type',None)
     )
     return data
 

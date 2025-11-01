@@ -98,7 +98,6 @@ async def main():
     db_handler =  DBHandler()
     db_connection = await db_handler.make_connection()
     seasonal_gather_instruction = [{'name' : 'Part1', 'min_year':1917, 'max_year':1957},{'name' : 'Part2', 'min_year':1958, 'max_year':2000},{'name' : 'Part3', 'min_year':2001, 'max_year':2025}]
-    # seasonal_gather_instruction = [{'name' : 'Part3', 'min_year':2001, 'max_year':2025}]
     await init_db(db_connection)
     await initiate_and_gather_jikan_genres(db_connection)
     for instruction in seasonal_gather_instruction:

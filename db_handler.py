@@ -70,6 +70,7 @@ async def init_db(conn:aiosqlite.Connection):
             source TEXT,
             members INTEGER,
             favorites INTEGER,
+            type TEXT,
             FOREIGN KEY(season_id) REFERENCES seasons(id)
         )
     ''')
@@ -200,6 +201,17 @@ async def init_db(conn:aiosqlite.Connection):
             FOREIGN KEY(anime_id) REFERENCES anime(mal_id)
         )
     ''')
+
+    await cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anime_recomendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER,
+            recomended INTEGER,
+            mixed_feelings INTEGER,
+            not_recomended INTEGER,
+            total INTEGER
+        )
+    ''')
     
     await cursor.execute('CREATE INDEX IF NOT EXISTS idx_year_season ON seasons(year, season)')
     await cursor.execute('CREATE INDEX IF NOT EXISTS idx_anime_season ON anime(season_id)')
@@ -261,9 +273,9 @@ async def anime_bulk_insertion(cursor:aiosqlite.Cursor, anime_tuples):
             INSERT OR IGNORE INTO anime (
                 mal_id, season_id, url, approved, title, title_english, title_japanese, aired_json,
                 rating, season, year, broadcast_json, studios_json, genres_json,
-                explicit_genres_json, themes_json, demographics_json, score, scored_by,source, members, favorites
+                explicit_genres_json, themes_json, demographics_json, score, scored_by,source, members, favorites, type
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?)
         ''', anime_tuples)
     except Exception as e:
         print(e)
@@ -342,6 +354,20 @@ async def anime_studio_insert_bulk(cursor:aiosqlite.Cursor,data:list):
         print("gagal insert anime studio")
         raise e
 
+async def anime_insert_top_recomendation(cursor:aiosqlite.Cursor,data:list):
+    try:
+        # Bulk insert anime for this season
+        await cursor.executemany(f'''
+            INSERT OR IGNORE INTO anime_recomendations (
+                anime_id,recomended,mixed_feelings,not_recomended,total
+            )
+            VALUES (?, ?, ?, ?, ?)
+        ''', data)
+    except Exception as e:
+        print(e)
+        print("gagal insert recomendtaion")
+        raise e
+    
 async def anime_producer_insert_bulk(cursor:aiosqlite.Cursor,data:list):
     try:
         # Bulk insert anime for this season
@@ -376,6 +402,23 @@ async def insert_genre_from_dict(conn : aiosqlite.Connection,results: dict[str,l
         cursor = await conn.cursor()
         dict_data = results.get('data',[])
         await genres_insert_bulk(cursor,dict_data, genre_choice)
+        await conn.commit()
+    except aiosqlite.Error as e:
+        if conn:
+            await conn.rollback()
+        raise e  
+    except Exception as e:
+        if conn:
+            await conn.rollback()
+        raise e
+    finally:
+        return Errors
+
+async def insert_recomendation_data(conn : aiosqlite.Connection,data:list[tuple]):
+    Errors = []
+    try:
+        cursor = await conn.cursor()
+        await anime_insert_top_recomendation(cursor,data)
         await conn.commit()
     except aiosqlite.Error as e:
         if conn:

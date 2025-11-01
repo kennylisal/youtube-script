@@ -533,3 +533,168 @@ SELECT
   anime_count
 FROM explicit_genre_anime_counts
 ORDER BY year ASC, anime_count DESC;
+
+WITH explicit_genre_anime_counts AS (
+  SELECT 
+    strftime('%Y', anime_aired_schedule.aired_from) AS year,
+    explicit_genres.name AS explicit_genre_name,
+    COUNT(DISTINCT anime.mal_id) AS anime_count
+  FROM anime_aired_schedule
+  JOIN anime ON anime_aired_schedule.anime_id = anime.mal_id
+  JOIN anime_explicit_genres ON anime.mal_id = anime_explicit_genres.anime_id
+  JOIN explicit_genres ON anime_explicit_genres.explicit_genre_id = explicit_genres.mal_id
+  WHERE anime_aired_schedule.aired_from IS NOT NULL
+    AND explicit_genres.name = 'Ecchi' 
+  GROUP BY year, explicit_genre_name
+)
+SELECT 
+  year,
+  explicit_genre_name,
+  anime_count
+FROM explicit_genre_anime_counts
+ORDER BY year ASC, anime_count DESC;
+
+--day's average score for all recorder years
+SELECT 
+    ab.day,
+    strftime('%Y', aas.aired_from) AS aired_year,
+    AVG(a.score) AS avg_score,
+    COUNT(a.mal_id) AS anime_count  -- Optional: Shows sample size per group
+FROM 
+    anime_broadcast ab
+JOIN 
+    anime a ON ab.anime_id = a.mal_id
+JOIN 
+    anime_aired_schedule aas ON ab.anime_id = aas.anime_id
+WHERE 
+    a.score IS NOT NULL  -- Exclude unscored anime
+    AND aas.aired_from IS NOT NULL  -- Ensure valid start date for year extraction
+GROUP BY 
+    ab.day, aired_year
+HAVING 
+    anime_count >= 5  -- Optional: Filter out groups with too few anime to avoid unreliable averages (adjust threshold as needed)
+ORDER BY 
+    aired_year ASC, avg_score DESC;
+
+-- overall ammount of isekai came out on spesific day
+SELECT 
+    ab.day,
+    COUNT(DISTINCT a.mal_id) AS isekai_anime_count
+FROM 
+    anime_themes at
+JOIN 
+    anime a ON at.anime_id = a.mal_id
+JOIN 
+    anime_broadcast ab ON at.anime_id = ab.anime_id
+WHERE 
+    at.theme_id = (SELECT mal_id FROM themes WHERE name = 'Isekai')
+GROUP BY 
+    ab.day
+ORDER BY 
+    ab.day ASC;
+
+-- average score of isekai anime on each day -- overall
+SELECT 
+    ab.day,
+    AVG(a.score) AS avg_score,
+    COUNT(DISTINCT a.mal_id) AS isekai_anime_count
+FROM 
+    anime_themes at
+JOIN 
+    anime a ON at.anime_id = a.mal_id
+JOIN 
+    anime_broadcast ab ON at.anime_id = ab.anime_id
+WHERE 
+    at.theme_id = (SELECT mal_id FROM themes WHERE name = 'Isekai')
+    AND a.score IS NOT NULL
+GROUP BY 
+    ab.day
+ORDER BY 
+    ab.day ASC;
+
+-- show top isekai anime based on broadcast day -overall
+WITH ranked_isekai AS (
+    SELECT 
+        a.title,
+        a.score,
+        a.year,
+        ab.day,
+        ROW_NUMBER() OVER (PARTITION BY ab.day ORDER BY a.score DESC) AS rn
+    FROM 
+        anime_themes at
+    JOIN 
+        anime a ON at.anime_id = a.mal_id
+    JOIN 
+        anime_broadcast ab ON at.anime_id = ab.anime_id
+    WHERE 
+        at.theme_id = (SELECT mal_id FROM themes WHERE name = 'Isekai')
+        AND a.score IS NOT NULL
+)
+SELECT 
+    title,
+    score,
+    year,
+    day
+FROM 
+    ranked_isekai
+WHERE 
+    rn <= 10
+ORDER BY 
+    day ASC, score DESC;
+
+-- top isekai anime based on broadcast day
+SELECT DISTINCT
+    a.title,
+    a.score,
+    a.year,
+    ab.day
+FROM 
+    anime_broadcast ab
+JOIN 
+    anime a ON ab.anime_id = a.mal_id
+JOIN 
+    anime_themes at ON at.anime_id = a.mal_id
+WHERE 
+    ab.day = 'Mondays'
+    AND a.score IS NOT NULL  -- Exclude unscored anime
+    AND at.theme_id = (SELECT mal_id FROM themes WHERE name = 'Isekai')
+ORDER BY 
+    a.year DESC
+LIMIT 10;
+
+SELECT DISTINCT day
+FROM anime_broadcast
+WHERE anime_id = 45576;
+
+-- average score of overall anime on each day
+SELECT 
+    ab.day,
+    AVG(a.score) AS avg_score,
+    COUNT(DISTINCT a.mal_id) AS anime_count
+FROM 
+    anime_broadcast ab
+JOIN 
+    anime a ON ab.anime_id = a.mal_id
+WHERE 
+    a.score IS NOT NULL
+GROUP BY 
+    ab.day
+ORDER BY 
+    ab.day ASC;
+
+--find top anime on each day
+SELECT DISTINCT
+    a.title,
+    a.score,
+    a.year,
+    ab.day
+FROM 
+    anime_broadcast ab
+JOIN 
+    anime a ON ab.anime_id = a.mal_id
+WHERE 
+    ab.day = 'Fridays'
+    AND a.score IS NOT NULL  -- Exclude unscored anime
+ORDER BY 
+    a.score DESC
+LIMIT 10;

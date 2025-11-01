@@ -17,6 +17,7 @@ class AsyncAPIClient:
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self.results = {}
         self.anime_type = anime_type
+        self.logs = []
     
     async def __aenter__(self):
         # connector = aiohttp.TCPConnector(limit=1)  # 1 concurrent connection
@@ -66,7 +67,7 @@ class AsyncAPIClient:
                 except Exception as e:
                     line_print(Back.RED, f"API Error at path '{path}' attemp {attempt + 1}/{max_attemps + 1}")
                 
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
         msg = f"Exhausted {max_attemps + 1} attempts for {api_url} without success"
         self.raise_error(error=APIClientError(url=api_url,error=RuntimeError(msg),type='paginate',aiohttp_error=last_aiohttp_caught_error))
 
@@ -78,7 +79,8 @@ class AsyncAPIClient:
     # this is used to get all the paginated data
     async def get_path_entire_data(self, path : str ):
         try:
-            first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
+            first_data = await self.get_jikan_moe(path, params={'page' : 1})
+            # first_data = await self.get_jikan_moe(path, params={'page' : 1, 'filter' : self.anime_type})
             pagination = first_data.get('pagination') # type: ignore
             if pagination is None:
                 raise Exception({"error" : f"{path} data is corrupt, no pagination data", "path": path})
@@ -92,7 +94,8 @@ class AsyncAPIClient:
                 tasks = []
                 for i in range(1,page_count):
                     current_index = i + 1
-                    tasks.append(self.get_jikan_moe(path,params={'page':current_index,'filter' : self.anime_type}))
+                    tasks.append(self.get_jikan_moe(path,params={'page':current_index}))
+                    # tasks.append(self.get_jikan_moe(path,params={'page':current_index,'filter' : self.anime_type}))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 # 
                 for result in results:
@@ -100,6 +103,7 @@ class AsyncAPIClient:
                         anime_data :list= result.get('data') # type: ignore
                         final_result.extend(anime_data)
             print(Fore.GREEN + f"{path} -> {len(final_result)} datas")
+            self.logs.append(f"{path} -> {len(final_result)} datas")
             # processed_data = self.filter_wanted_attributes(final_result)
             return pagination, final_result
         except Exception as e:
@@ -172,7 +176,7 @@ class AsyncAPIClient:
                 new_task = self.add_data_to_final_result(year,season)
                 tasks.append(new_task)
         await asyncio.gather(*tasks, return_exceptions=True)
-        return self.results
+        return self.results, self.logs
 
     def raise_error(self, error:Exception):
         error_msg = str(error)
@@ -260,8 +264,9 @@ async def gather_jikan_genres_data(genre_filter:str):
 
 async def gather_top_anime():
     async with AsyncAPIClient("api.jikan.moe/v4",'tv') as client:
-       _, data =  await client.get_entire_path_top_anime(added_params={})
-       db_handler.save_data_to_file(data,"top_750_score.txt")
+       _, data =  await client.get_entire_path_top_anime(added_params={'filter':'bypopularity'}, max_page=40)
+       db_handler.save_data_to_file(data,"top_1000_popularity.txt")
+       print(len(data))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(gather_top_anime())
