@@ -72,12 +72,11 @@ async def scrape_page_review(url, mal_id):
         }
 
 
-async def create_review_list(list_path = 'top_750_popularity.txt'):
+async def create_review_list(list_path = 'top_1000_popularity.txt'):
     utils.line_print_announcement("Starting to scrape top anime review")
     errors = []
     anime_list : list[dict] = db_handler.load_data_from_file(list_path)
     tasks = []
-    # anime_list_x = anime_list[0:10]
     for anime in anime_list:
         url = anime.get('url', None)
         mal_id = anime.get('mal_id', None)
@@ -89,9 +88,7 @@ async def create_review_list(list_path = 'top_750_popularity.txt'):
         tasks.append(scrape_page_review(url, mal_id))
     results = await asyncio.gather(*tasks,return_exceptions=True)
     print(errors)
-    db_handler.save_data_to_file(results, 'review_top_750.txt')
+    db_handler.save_data_to_file(results, 'review_top_Popularity.txt')
 
 if __name__ == "__main__":
     asyncio.run(create_review_list())
-    # x = asyncio.run(scrape_page_review("https://myanimelist.net/anime/5114/Fullmetal_Alchemist__Brotherhood"))
-    # print(x)
