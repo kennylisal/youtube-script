@@ -1,6 +1,6 @@
 import asyncio
 import mal_script
-from db_handler import DBHandler, insert_from_dict, save_data_to_file, init_db, insert_genre_from_dict
+from db_handler import DBHandler, insert_from_dict, save_data_to_file, init_db, insert_genre_from_dict, load_data_from_file, insert_recomendation_data
 from typing import Literal
 from error_solver import ErrorSolver
 from colorama import Back
@@ -11,8 +11,8 @@ ERROR_SOLVER_LOG_PATH = "error_solver_log.txt"
 
 async def get_year_seasonal_data(year:int, anime_type:Literal['tv', 'ova', 'ona','movie']):
     async with mal_script.AsyncAPIClient(base_url="api.jikan.moe/v4",headers={},anime_type=anime_type) as client:
-        year_data = await client.get_year_seasonal_data(year)
-        return year_data,client.errors
+        year_data,logs = await client.get_year_seasonal_data(year)
+        return year_data,client.errors,logs
 
 async def run_error_resolver():
     async with ErrorSolver(anime_type='tv',client_error_path=API_CLIENT_ERROR_PATH,main_error_path=MAIN_ERROR_PATH,error_log_path=ERROR_SOLVER_LOG_PATH) as solver:
@@ -42,23 +42,19 @@ class MainError(Exception):
             "error" : str(self.error)
         }
 
-async def gather_seasonal_data(db_connection):
-    
-    MAX_YEAR = 2025 + 1
-    MIN_YEAR = 2015
+async def gather_seasonal_data(db_connection, part_name:str, MAX_YEAR:int, MIN_YEAR:int):
+    MAX_YEAR += 1
     ANIME_TYPE = 'tv'
     mal_script.line_print(Back.BLUE, f"Starting to Gather Data from {MIN_YEAR} to {MAX_YEAR - 1}")
     main_errors = []
     client_errors = []
-    # db_handler =  DBHandler()
-    # db_connection = await db_handler.make_connection()
-    # await init_db(db_connection)
-
+    operation_logs = ["Saya tes ji ini log", "bgmn jadinya ya"]
     for year in range(MIN_YEAR,MAX_YEAR):
         data = None
         try:
-            data,errors = await get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
+            data,errors,logs = await get_year_seasonal_data(year=year,anime_type=ANIME_TYPE)
             await insert_from_dict(db_connection, data, year)
+            logs.append(operation_logs)
             client_errors.extend(errors)
         except Exception as e:
             # this is only to catch sqllite write error
@@ -66,12 +62,11 @@ async def gather_seasonal_data(db_connection):
             if data is not None:
                 file_path = f"jikan/{year}"
                 save_data_to_file(data, file_path)
-        await asyncio.sleep(2)
+        await asyncio.sleep(5)
 
-    # db_handler.test_query()
-    # await db_handler.close()
-    save_data_to_file(main_errors,MAIN_ERROR_PATH)
-    save_data_to_file(client_errors,API_CLIENT_ERROR_PATH)
+    save_data_to_file(main_errors,f"{part_name}_"+MAIN_ERROR_PATH)
+    save_data_to_file(client_errors,f"{part_name}_"+API_CLIENT_ERROR_PATH)
+    save_data_to_file(operation_logs, "anime_gathering_logs.txt")
     mal_script.line_print(Back.BLUE, f"Done Gathering Data from {MIN_YEAR} to {MAX_YEAR}")
 
 async def initiate_and_gather_jikan_genres(db_connection):
@@ -83,20 +78,36 @@ async def initiate_and_gather_jikan_genres(db_connection):
         await insert_genre_from_dict(db_connection,genre_dict,genre)
     mal_script.line_print(Back.BLUE, "Done Gathering all MAL Genres")
 
-# async def testing_db_operation():
-#     await initiate_and_gather_jikan_genres()
-#     db_handler =  DBHandler()
-#     db_connection = await db_handler.make_connection()
-#     anime_data = await mal_script.get_data_from_txt()
-#     await insert_from_dict(db_connection,anime_data) # type: ignore
+async def insert_review_to_sqlite():
+    db_handler =  DBHandler()
+    db_connection = await db_handler.make_connection() 
+    data = load_data_from_file("review_top_Popularity.txt")
+    try:
+        tuple_data = [
+            (d['mal_id'], d['Recommended'], d['Mixed Feelings'], d['Not Recommended'], d['Total'])
+            for d in data
+        ]
+    except Exception as e:
+        print(e)
+        raise e
+    await insert_recomendation_data(db_connection,tuple_data)
+    mal_script.line_print(Back.BLUE, f"Done Inserting recomendation data")
+    await db_handler.close()
 
 async def main():
     db_handler =  DBHandler()
     db_connection = await db_handler.make_connection()
+    seasonal_gather_instruction = [{'name' : 'Part1', 'min_year':1917, 'max_year':1957},{'name' : 'Part2', 'min_year':1958, 'max_year':2000},{'name' : 'Part3', 'min_year':2001, 'max_year':2025}]
+    # seasonal_gather_instruction = [{'name' : 'Part3', 'min_year':2001, 'max_year':2025}]
     await init_db(db_connection)
     await initiate_and_gather_jikan_genres(db_connection)
-    await gather_seasonal_data(db_connection)
+    for instruction in seasonal_gather_instruction:
+        name = instruction['name']
+        min_year = instruction['min_year']
+        max_year = instruction['max_year']
+        await gather_seasonal_data(db_connection,part_name=name,MAX_YEAR=max_year,MIN_YEAR=min_year)
+        mal_script.line_print(Back.BLUE, f"{name} of gathering done")
     await db_handler.close()
 
 if __name__ == "__main__":
-    asyncio.run( mal_script.gather_top_anime())
+    asyncio.run(insert_review_to_sqlite())
